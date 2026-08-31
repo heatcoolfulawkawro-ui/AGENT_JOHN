@@ -25,7 +25,9 @@ const SHARED_SECRET = 'hvac_580gMoLePXK8REU7k8KfTyG5';
 const ROOT_FOLDER_NAME = 'HVAC Notatki';
 // Nazwa modelu Gemini — jeśli Google zmieni nazewnictwo i odczyt zacznie zwracać
 // błąd 404, podmień tę jedną stałą na aktualną nazwę z https://ai.google.dev/gemini-api/docs/models
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// (2.5-flash wycofane dla nowych użytkowników 31.08.2026 — Google w treści błędu 404
+// wskazał 3.6-flash jako następcę, stąd ta wartość).
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
 function checkAuth(token) {
   if (token !== SHARED_SECRET) throw new Error('Brak autoryzacji');
