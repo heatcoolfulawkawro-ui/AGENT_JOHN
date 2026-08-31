@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>HVAC Notatki</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#12181d; --panel:#1b232a; --panel2:#212b33; --line:#2c3841;
+    --ink:#e8edf1; --ink-dim:#8fa0ab; --amber:#e8a33d; --green:#4caf7d;
+    --red:#d9695f; --blue:#5b9bd5; --radius:10px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:'Segoe UI',Roboto,Arial,sans-serif; }
+
+  header.app{ position:sticky; top:0; z-index:5; background:linear-gradient(180deg,#151c22 0%, #12181d 100%); border-bottom:1px solid var(--line); padding:14px 16px 0; }
+  header.app .toprow{ display:flex; align-items:center; gap:8px; padding-bottom:12px; }
+  header.app .exitbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); font-size:12px; font-family:inherit; padding:7px 11px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:5px; flex-shrink:0; }
+  header.app .titles{ min-width:0; }
+  header.app h2{ margin:0; font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:5px; }
+  header.app h2 .lock{ font-size:11px; }
+  header.app .crumb{ color:var(--ink-dim); font-size:11px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header.app h2.plain{ font-size:16px; }
+  header.app .hsub{ color:var(--ink-dim); font-size:11.5px; padding-bottom:12px; margin-top:-4px; }
+
+  .worktabs{ display:flex; gap:2px; margin:0 -16px; padding:0 16px; background:var(--bg); border-bottom:1px solid var(--line); }
+  .worktabs button{ flex:1; background:none; border:none; color:var(--ink-dim); font-family:inherit; font-size:13px; font-weight:600; padding:11px 4px; cursor:pointer; border-bottom:2px solid transparent; display:flex; align-items:center; justify-content:center; gap:6px; }
+  .worktabs button.on{ color:var(--amber); border-bottom-color:var(--amber); }
+  .cbadge{ background:var(--panel2); color:var(--ink-dim); font-size:10.5px; font-weight:700; border-radius:9px; padding:1px 6px; }
+  .worktabs button.on .cbadge{ background:var(--amber); color:#20140a; }
+
+  main.app{ padding:14px 16px 22px; }
+  main.app.haswb{ padding-bottom:82px; }
+  main.app.hastb{ padding-bottom:76px; }
+
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:11.5px; color:var(--ink-dim); margin-bottom:5px; }
+  .field input, .field textarea{
+    width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+    padding:11px 12px; color:var(--ink); font-size:15px; font-family:inherit;
+  }
+  .field textarea{ resize:none; min-height:56px; }
+  .field.ai input{ border-color:#4a3a1c; background:#1c1811; }
+  .ailabel{ display:inline-flex; align-items:center; gap:4px; color:var(--amber); font-size:10.5px; margin-left:6px; font-weight:600; }
+
+  .bigcta{
+    width:100%; background:var(--amber); color:#20140a; border:none; border-radius:11px;
+    padding:14px; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .bigcta:disabled{ opacity:.6; }
+  .ghostbtn{
+    width:100%; background:none; border:1px dashed var(--line); color:var(--ink-dim); border-radius:9px;
+    padding:11px; font-size:13px; font-family:inherit; cursor:pointer; margin-top:8px;
+  }
+
+  .sectionlbl{ font-size:11px; color:var(--ink-dim); text-transform:uppercase; letter-spacing:.07em; margin:4px 0 8px; display:flex; align-items:center; justify-content:space-between; }
+  .sectionlbl a{ color:var(--amber); text-decoration:none; font-weight:700; text-transform:none; letter-spacing:0; font-size:12.5px; cursor:pointer; }
+
+  .visitcard{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:13px 14px; margin-bottom:8px; display:flex; align-items:center; gap:10px; cursor:pointer; }
+  .visitcard .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); flex-shrink:0; }
+  .visitcard.done .dot{ background:var(--green); }
+  .visitcard .main{ flex:1; min-width:0; }
+  .visitcard .name{ font-size:14px; font-weight:600; }
+  .visitcard .sub{ font-size:11.5px; color:var(--ink-dim); margin-top:2px; }
+  .visitcard .chev{ color:var(--ink-dim); flex-shrink:0; font-size:16px; }
+
+  .addbox{ background:var(--panel2); border:1px dashed var(--line); border-radius:var(--radius); padding:13px; margin-bottom:10px; }
+  .addbox .field{ margin-bottom:9px; }
+  .addbox .field input{ background:var(--panel); }
+
+  .segrow{ display:flex; gap:6px; }
+  .segrow button{
+    flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim);
+    padding:10px 4px; border-radius:8px; font-size:12.5px; font-family:inherit; cursor:pointer;
+  }
+  .segrow button.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
+
+  .shotbox{ background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius); padding:14px; text-align:center; margin-bottom:14px; }
+  .shotpickrow{ display:flex; gap:8px; margin-bottom:10px; }
+  .shotpickrow button{ flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); font-family:inherit; font-size:12.5px; font-weight:600; border-radius:9px; padding:13px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .shotpickrow button span.ic{ font-size:20px; }
+  .shotbox p{ margin:0; font-size:11.5px; color:var(--ink-dim); }
+
+  .thumbrow{ display:flex; gap:10px; align-items:center; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:12px; }
+  .thumb{ width:56px; height:56px; border-radius:7px; background:linear-gradient(135deg,#2a3540,#1a232b); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:19px; overflow:hidden; text-decoration:none; }
+  .thumb img{ width:100%; height:100%; object-fit:cover; }
+  .scanstate{ font-size:13px; color:var(--amber); display:flex; align-items:center; gap:8px; }
+  .dot3{ display:inline-flex; gap:3px; }
+  .dot3 span{ width:4px; height:4px; border-radius:50%; background:var(--amber); animation:pulse 1.2s infinite ease-in-out; }
+  .dot3 span:nth-child(2){ animation-delay:.15s; } .dot3 span:nth-child(3){ animation-delay:.3s; }
+  @keyframes pulse{ 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+
+  .counterbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; gap:8px; }
+  .counterbar .cnt{ font-size:13.5px; font-weight:700; }
+  .counterbar .cnt b{ color:var(--amber); }
+  .counterbar .sync{ font-size:10.5px; color:var(--ink-dim); display:flex; align-items:center; gap:5px; flex-shrink:0; white-space:nowrap; }
+  .syncdot{ width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; }
+  .sorthint{ font-size:11px; color:var(--ink-dim); margin:0 0 12px; }
+
+  .devcard{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:8px; display:flex; gap:9px; align-items:center; }
+  .devcard .reorder{ display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  .devcard .reorder button{ background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); width:22px; height:19px; font-size:10px; line-height:1; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; }
+  .devcard .reorder button:first-child{ border-radius:5px 5px 0 0; }
+  .devcard .reorder button:last-child{ border-radius:0 0 5px 5px; border-top:none; }
+  .devcard .reorder button:disabled{ opacity:.3; }
+  .devcard .thumb{ width:46px; height:46px; font-size:16px; }
+  .devcard .body{ flex:1; min-width:0; }
+  .devcard .title{ font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .devcard .meta{ font-size:11.5px; color:var(--ink-dim); margin-top:2px; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .devcard .tag{ display:inline-block; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:10px; color:var(--ink-dim); margin-top:4px; }
+  .devcard .tag.out{ color:var(--blue); border-color:#2a4256; }
+  .devcard .acts{ display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
+  .devcard .acts button{
+    background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim);
+    font-size:15px; cursor:pointer; padding:0; width:34px; height:24px; border-radius:7px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .devcard .acts button.dup{ color:var(--blue); border-color:#2a4256; }
+  .devcard .acts button.del{ color:var(--red); border-color:#4a2c28; }
+
+  .finishcard{ background:#152018; border:1px solid #2c4536; border-radius:var(--radius); padding:14px; margin:16px 0 4px; text-align:center; }
+  .finishcard p{ margin:0 0 10px; font-size:12.5px; color:var(--ink-dim); line-height:1.5; }
+  .finishbtn{ width:100%; background:none; border:1px solid var(--green); color:var(--green); border-radius:9px; padding:12px; font-size:13.5px; font-weight:700; font-family:inherit; cursor:pointer; }
+
+  .bottombar{ position:fixed; left:0; right:0; bottom:0; background:#151c22; border-top:1px solid var(--line); padding:10px 14px 14px; display:flex; gap:6px; z-index:6; }
+  .bottombar button{ font-family:inherit; cursor:pointer; border-radius:10px; font-size:12.5px; font-weight:700; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:9px 4px; }
+  .bottombar .secondary{ background:var(--panel2); border:1px solid var(--line); color:var(--ink); flex:0 0 66px; }
+  .bottombar .dl{ background:var(--panel2); border:1px solid var(--line); color:var(--ink); flex:1; }
+  .bottombar .share{ background:var(--amber); color:#20140a; flex:1.3; }
+
+  .tabbar{ position:fixed; left:0; right:0; bottom:0; display:flex; background:#151c22; border-top:1px solid var(--line); z-index:6; }
+  .tabbar button{ flex:1; background:none; border:none; color:var(--ink-dim); font-family:inherit; padding:10px 4px 10px; font-size:11.5px; font-weight:600; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .tabbar button .ic{ font-size:17px; }
+  .tabbar button.active{ color:var(--amber); }
+
+  .err{ color:var(--red); font-size:12px; margin:0 0 10px; background:#2a1614; border:1px solid #4a2c28; border-radius:8px; padding:9px 11px; }
+  .empty{ color:var(--ink-dim); font-size:13px; text-align:center; padding:26px 10px; }
+
+  .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--bg); background:var(--green); padding:8px 15px; border-radius:9px; z-index:50; font-weight:600; opacity:0; pointer-events:none; transition:opacity .25s; max-width:88vw; text-align:center; box-shadow:0 8px 20px -6px #000a; }
+  .toast.show{ opacity:1; }
+  .toast.err{ background:var(--red); color:#2a1210; }
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+<div id="app"></div>
+
+<script>
+// ============ KONFIGURACJA ============
+// Paweł: podmień poniższy URL na ten z Twojego wdrożenia Apps Script (kończy się na /exec).
+const GAS_URL = 'WKLEJ_TU_URL_Z_WDROZENIA_APPS_SCRIPT';
+const TOKEN = 'hvac_580gMoLePXK8REU7k8KfTyG5';
+
+// ============ POMOCNICZE ============
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function val(id){ const el=document.getElementById(id); return el ? el.value : ''; }
+function isLocalOnlyId(id){ return String(id).indexOf('local_')===0; }
+function typLabel(t){
+  if(t==='wewnetrzna') return 'Wewnętrzna';
+  if(t==='zewnetrzna') return 'Zewnętrzna';
+  if(t==='inne') return 'Inne';
+  return '';
+}
+function pad2(n){ return ('0'+n).slice(-2); }
+function fmtDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  return pad2(d.getDate())+'.'+pad2(d.getMonth()+1)+'.'+d.getFullYear();
+}
+function fmtRelative(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  const now = new Date();
+  const hm = pad2(d.getHours())+':'+pad2(d.getMinutes());
+  if(d.toDateString()===now.toDateString()) return 'dziś ' + hm;
+  const yest = new Date(now); yest.setDate(now.getDate()-1);
+  if(d.toDateString()===yest.toDateString()) return 'wczoraj ' + hm;
+  return fmtDate(iso);
+}
+function todayLabel(){ return fmtDate(new Date().toISOString()); }
+function sanitizeFileName(s){ return String(s||'').replace(/[\\\/:*?"<>|]/g,'-').trim(); }
+
+function showToast(msg, isErr){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=> el.classList.remove('show'), 2400);
+}
+
+// ============ API ============
+async function apiGet(params){
+  const url = GAS_URL + '?' + new URLSearchParams(Object.assign({token:TOKEN}, params)).toString();
+  const res = await fetch(url);
+  return res.json();
+}
+async function apiPost(body){
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+    body: JSON.stringify(Object.assign({token:TOKEN}, body))
+  });
+  return res.json();
+}
+
+// ============ LOKALNY BUFOR (na wypadek słabego zasięgu w terenie) ============
+function lsKey(id){ return 'hvac_wizyta_' + id; }
+function persistLocalUrzadzenia(){
+  if(!state.currentWizyta || !state.currentWizyta.id) return;
+  try{
+    localStorage.setItem(lsKey(state.currentWizyta.id), JSON.stringify({
+      wizyta: state.currentWizyta, urzadzenia: state.urzadzenia, ts: Date.now()
+    }));
+  }catch(e){}
+}
+function loadLocalUrzadzenia(id){
+  try{ const raw = localStorage.getItem(lsKey(id)); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+
+// ============ STAN ============
+const state = {
+  screen: 'start',       // start | wizyty | archiwum | workspace
+  workTab: 'dodaj',       // dodaj | lista
+  readonly: false,
+  loadingList: false,
+  listErr: '',
+  wizytyToku: [],
+  wizytyDone: [],
+  currentWizyta: null,
+  urzadzenia: [],
+  form: { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'' }
+};
+let editingId = null;
+let formTyp = 'wewnetrzna';
+let formPhoto = null;          // {base64, mimeType, previewDataUrl} — nowo wybrane, jeszcze nie zapisane
+let formExistingPhotoUrl = null; // zdjęcie już zapisane na serwerze (tryb edycji)
+let formAiFilled = false;
+let analyzing = false;
+let analyzeError = '';
+
+function resetForm(){
+  editingId = null;
+  formTyp = 'wewnetrzna';
+  formPhoto = null;
+  formExistingPhotoUrl = null;
+  formAiFilled = false;
+  analyzing = false;
+  analyzeError = '';
+  state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'' };
+}
+
+// ============ ZDJĘCIE: wczytanie + zmniejszenie ============
+function fileToDownscaledBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('nie udało się odczytać pliku'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('nie udało się odczytać zdjęcia'));
+      img.onload = () => {
+        const maxDim = 1280;
+        let w = img.width, h = img.height;
+        if(w > h && w > maxDim){ h = Math.round(h * maxDim / w); w = maxDim; }
+        else if(h >= w && h > maxDim){ w = Math.round(w * maxDim / h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg', previewDataUrl: dataUrl });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onPhotoChosen(file){
+  if(!file) return;
+  try{
+    const picked = await fileToDownscaledBase64(file);
+    formPhoto = picked;
+    formExistingPhotoUrl = null;
+    formAiFilled = false;
+    analyzeError = '';
+    analyzing = true;
+    render();
+    try{
+      const res = await apiPost({ action:'analyze_photo', imageBase64: picked.base64, mimeType: picked.mimeType });
+      if(res.ok){
+        state.form.producent = res.data.producent || '';
+        state.form.model = res.data.model || '';
+        state.form.sn = res.data.sn || '';
+        formAiFilled = true;
+      } else {
+        analyzeError = res.error || 'Nie udało się odczytać zdjęcia automatycznie — wpisz dane ręcznie.';
+      }
+    }catch(err){
+      analyzeError = 'Brak połączenia — wpisz dane ręcznie (zdjęcie zostanie zapisane).';
+    }
+    analyzing = false;
+    render();
+  }catch(err){
+    showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
+  }
+}
+
+// ============ NAWIGACJA GŁÓWNA ============
+async function openStart(){
+  state.screen = 'start';
+  render();
+  await refreshWizytyToku();
+}
+async function openWizyty(){
+  state.screen = 'wizyty';
+  render();
+  await refreshWizytyToku();
+}
+async function openArchiwum(){
+  state.screen = 'archiwum';
+  render();
+  await refreshWizytyDone();
+}
+async function refreshWizytyToku(){
+  state.loadingList = true; state.listErr = ''; render();
+  try{
+    const res = await apiGet({action:'list_wizyty', status:'w_toku'});
+    if(res.ok) state.wizytyToku = res.data; else state.listErr = res.error || 'Błąd odczytu';
+  }catch(err){ state.listErr = 'Brak połączenia: ' + err.message; }
+  state.loadingList = false; render();
+}
+async function refreshWizytyDone(){
+  state.loadingList = true; state.listErr = ''; render();
+  try{
+    const res = await apiGet({action:'list_wizyty', status:'zakonczona'});
+    if(res.ok) state.wizytyDone = res.data; else state.listErr = res.error || 'Błąd odczytu';
+  }catch(err){ state.listErr = 'Brak połączenia: ' + err.message; }
+  state.loadingList = false; render();
+}
+
+async function openWizytaWorkspace(id, readonly){
+  state.screen = 'workspace';
+  state.readonly = !!readonly;
+  state.workTab = 'dodaj';
+  const cached = loadLocalUrzadzenia(id);
+  state.currentWizyta = cached ? cached.wizyta : { id, klient:'', obiekt:'' };
+  state.urzadzenia = cached ? cached.urzadzenia : [];
+  resetForm();
+  render();
+  try{
+    const res = await apiGet({action:'get_wizyta', id});
+    if(!res.ok) throw new Error(res.error || 'Błąd odczytu');
+    state.currentWizyta = res.data;
+    const serverList = res.data.urzadzenia || [];
+    const pendingLocal = (cached ? cached.urzadzenia : []).filter(u => u._synced === false);
+    state.urzadzenia = serverList.concat(pendingLocal);
+    state.workTab = (state.urzadzenia.length > 0 || state.readonly) ? 'lista' : 'dodaj';
+    persistLocalUrzadzenia();
+    render();
+    if(pendingLocal.length) retryAllUnsynced();
+  }catch(err){
+    if(cached){
+      state.workTab = (state.urzadzenia.length > 0 || state.readonly) ? 'lista' : 'dodaj';
+    }
+    showToast('Brak połączenia — pokazuję ostatnio zapisane dane', true);
+    render();
+  }
+}
+function exitWorkspace(){
+  state.currentWizyta = null;
+  state.urzadzenia = [];
+  openStart();
+}
+
+// ============ SYNCHRONIZACJA WPISÓW ============
+function buildRetryQueue(){ return state.urzadzenia.filter(u => u._synced === false); }
+
+async function trySyncEntry(id, payload){
+  const isEdit = !isLocalOnlyId(id);
+  try{
+    const res = isEdit
+      ? await apiPost(Object.assign({action:'update_urzadzenie', id: id}, payload))
+      : await apiPost(Object.assign({action:'add_urzadzenie'}, payload));
+    if(!res.ok) throw new Error(res.error || 'Błąd zapisu');
+    const i = state.urzadzenia.findIndex(u => u.id === id);
+    if(i > -1){
+      const localPreview = state.urzadzenia[i]._localPreview;
+      const merged = Object.assign({}, res.data, { _synced: true });
+      if(!merged.zdjecieUrl && localPreview) merged._localPreview = localPreview;
+      state.urzadzenia[i] = merged;
+    }
+    persistLocalUrzadzenia();
+    showToast('zsynchronizowano');
+  }catch(err){
+    showToast('Brak połączenia — zapisano lokalnie, spróbuję ponownie', true);
+  }
+  render();
+}
+
+async function retryAllUnsynced(){
+  const queue = buildRetryQueue();
+  if(!queue.length) return;
+  showToast('Synchronizuję ' + queue.length + '…');
+  for(const u of queue){
+    await trySyncEntry(u.id, u._payload);
+  }
+}
+
+// ============ FORMULARZ DODAJ/EDYTUJ ============
+async function submitForm(){
+  const producent = val('inpProducent').trim();
+  const model = val('inpModel').trim();
+  const sn = val('inpSN').trim();
+  const lokalizacja = val('inpLokalizacja').trim();
+  const uwagi = val('inpUwagi').trim();
+  const errEl = document.getElementById('formErr');
+
+  if(!lokalizacja){
+    if(errEl){ errEl.textContent = 'Podaj lokalizację (np. numer pomieszczenia) — po niej porządkujemy zdjęcia i listę.'; errEl.style.display = 'block'; }
+    return;
+  }
+  if(errEl) errEl.style.display = 'none';
+
+  const payload = { wizytaId: state.currentWizyta.id, producent, model, sn, typ: formTyp, lokalizacja, uwagi };
+  if(formPhoto){ payload.imageBase64 = formPhoto.base64; payload.mimeType = formPhoto.mimeType; }
+  // Tylko nowo wybrane zdjęcie ma sens jako _localPreview (surowy data: URL, renderowalny
+  // w <img>). formExistingPhotoUrl bywa linkiem do strony podglądu Drive — nieużywalnym
+  // jako src obrazka — więc go tu celowo pomijamy; miniatura i tak spadnie na zdjecieFileId.
+  const localPreview = formPhoto ? formPhoto.previewDataUrl : null;
+
+  const idBeingEdited = editingId;
+  let entryId;
+  if(idBeingEdited){
+    entryId = idBeingEdited;
+    const i = state.urzadzenia.findIndex(u => u.id === idBeingEdited);
+    if(i > -1){
+      state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], payload, {
+        _synced: false, _payload: payload,
+        _localPreview: localPreview || state.urzadzenia[i]._localPreview
+      });
+    }
+  } else {
+    entryId = 'local_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    state.urzadzenia.push(Object.assign({ id: entryId }, payload, {
+      _synced: false, _payload: payload, _localPreview: localPreview
+    }));
+  }
+  persistLocalUrzadzenia();
+  resetForm();
+  if(idBeingEdited) state.workTab = 'lista';
+  render();
+  if(!idBeingEdited) showToast('dodano do listy');
+  await trySyncEntry(entryId, payload);
+}
+
+function startEdit(id){
+  const u = state.urzadzenia.find(x => x.id === id);
+  if(!u) return;
+  editingId = id;
+  formTyp = u.typ || 'wewnetrzna';
+  formPhoto = null;
+  // zdjecieUrl to link do strony podglądu Drive, nie do surowego obrazka — do <img>
+  // trzeba wersji miniaturowej po fileId; dla jeszcze nie zsynchronizowanego zdjęcia
+  // jedyne co mamy to lokalny podgląd.
+  formExistingPhotoUrl = u.zdjecieFileId ? driveThumbUrl(u.zdjecieFileId, 600) : (u._localPreview || null);
+  formAiFilled = false;
+  analyzeError = '';
+  state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'' };
+  state.workTab = 'dodaj';
+  render();
+}
+
+function duplicateEntry(id){
+  const u = state.urzadzenia.find(x => x.id === id);
+  if(!u) return;
+  editingId = null;
+  formTyp = u.typ || 'wewnetrzna';
+  formPhoto = null;
+  formExistingPhotoUrl = null;
+  formAiFilled = false;
+  analyzeError = '';
+  state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'' };
+  state.workTab = 'dodaj';
+  render();
+  showToast('skopiowano — zeskanuj nową tabliczkę albo popraw dane');
+}
+
+async function deleteEntry(id){
+  const u = state.urzadzenia.find(x => x.id === id);
+  if(!u) return;
+  const opis = [u.producent, u.model].filter(Boolean).join(' ') + (u.lokalizacja ? ' — ' + u.lokalizacja : '');
+  if(!confirm('Usunąć ten wpis?\n' + opis)) return;
+  state.urzadzenia = state.urzadzenia.filter(x => x.id !== id);
+  persistLocalUrzadzenia();
+  render();
+  if(isLocalOnlyId(id)) return;
+  try{
+    const res = await apiPost({action:'delete_urzadzenie', id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('usunięto');
+  }catch(err){
+    showToast('Usunięto lokalnie, ale nie na serwerze: ' + err.message, true);
+  }
+}
+
+function moveEntry(id, dir){
+  const idx = state.urzadzenia.findIndex(u => u.id === id);
+  const newIdx = idx + dir;
+  if(idx < 0 || newIdx < 0 || newIdx >= state.urzadzenia.length) return;
+  const arr = state.urzadzenia;
+  const tmp = arr[idx]; arr[idx] = arr[newIdx]; arr[newIdx] = tmp;
+  persistLocalUrzadzenia();
+  render();
+  scheduleReorderSync();
+}
+let reorderTimer = null;
+function scheduleReorderSync(){
+  clearTimeout(reorderTimer);
+  reorderTimer = setTimeout(async () => {
+    try{
+      const ids = state.urzadzenia.filter(u => !isLocalOnlyId(u.id)).map(u => u.id);
+      await apiPost({action:'reorder_urzadzenia', wizytaId: state.currentWizyta.id, orderedIds: ids});
+    }catch(err){ /* kolejność i tak zostaje lokalnie, spróbuje się przy następnej zmianie */ }
+  }, 700);
+}
+
+async function finishProtocol(){
+  if(buildRetryQueue().length){
+    showToast('Synchronizuję pozostałe wpisy…');
+    await retryAllUnsynced();
+    if(buildRetryQueue().length){
+      alert('Nie udało się zsynchronizować wszystkich wpisów (brak połączenia). Spróbuj ponownie, gdy będzie zasięg.');
+      return;
+    }
+  }
+  const w = state.currentWizyta;
+  if(!confirm('Zakończyć protokół "' + w.klient + ' — ' + w.obiekt + '"?\nWizyta trafi do Archiwum, dane przestaną być edytowalne.')) return;
+  try{
+    const res = await apiPost({action:'finish_wizyta', id: w.id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    try{ localStorage.removeItem(lsKey(w.id)); }catch(e){}
+    showToast('Protokół zakończony');
+    openStart();
+  }catch(err){
+    showToast('Nie udało się zakończyć: ' + err.message, true);
+  }
+}
+
+// ============ EKSPORT ============
+function buildWorkbook(){
+  const w = state.currentWizyta;
+  const rows = [
+    ['Klient', w.klient || ''],
+    ['Obiekt', w.obiekt || ''],
+    ['Data', fmtDate(w.dataUtworzenia)],
+    [],
+    ['Lp', 'Lokalizacja', 'Typ', 'Producent', 'Model', 'SN', 'Uwagi']
+  ];
+  state.urzadzenia.forEach((u, i) => {
+    rows.push([i + 1, u.lokalizacja || '', typLabel(u.typ), u.producent || '', u.model || '', u.sn || '', u.uwagi || '']);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:4},{wch:16},{wch:12},{wch:14},{wch:16},{wch:16},{wch:34}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Urządzenia');
+  return wb;
+}
+function exportFileName(){
+  const w = state.currentWizyta;
+  return sanitizeFileName(w.klient) + '_' + sanitizeFileName(w.obiekt) + '.xlsx';
+}
+function downloadExcel(){
+  if(!state.urzadzenia.length){ showToast('Brak urządzeń do eksportu', true); return; }
+  XLSX.writeFile(buildWorkbook(), exportFileName());
+}
+async function shareExcel(){
+  if(!state.urzadzenia.length){ showToast('Brak urządzeń do eksportu', true); return; }
+  const wbout = XLSX.write(buildWorkbook(), {bookType:'xlsx', type:'array'});
+  const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const file = new File([blob], exportFileName(), {type: blob.type});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({ files:[file], title: exportFileName(), text: state.currentWizyta.klient + ' — ' + state.currentWizyta.obiekt });
+    }catch(err){
+      if(err.name !== 'AbortError') showToast('Nie udało się udostępnić: ' + err.message, true);
+    }
+  } else {
+    showToast('Ta przeglądarka nie obsługuje udostępniania plików — pobieram zamiast tego', true);
+    downloadExcel();
+  }
+}
+
+// ============ RENDEROWANIE ============
+function renderTabbar(active){
+  return '<div class="tabbar">' +
+    '<button data-t="start" class="' + (active==='start'?'active':'') + '"><span class="ic">🏠</span>Start</button>' +
+    '<button data-t="wizyty" class="' + (active==='wizyty'?'active':'') + '"><span class="ic">📋</span>Wizyty</button>' +
+    '<button data-t="archiwum" class="' + (active==='archiwum'?'active':'') + '"><span class="ic">🗄</span>Archiwum</button>' +
+  '</div>';
+}
+function bindTabbar(root){
+  const tb = root.querySelector('.tabbar');
+  if(!tb) return;
+  tb.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      if(b.dataset.t==='start') openStart();
+      else if(b.dataset.t==='wizyty') openWizyty();
+      else openArchiwum();
+    });
+  });
+}
+
+function visitCardHtml(w, isDone){
+  const sub = isDone
+    ? 'Zakończono ' + fmtDate(w.dataZakonczenia) + ' · ' + w.liczbaUrzadzen + ' urządzeń'
+    : w.liczbaUrzadzen + ' urządzeń · ' + fmtRelative(w.dataAktywnosci);
+  return '<div class="visitcard' + (isDone?' done':'') + '" data-id="' + esc(w.id) + '" data-done="' + (isDone?'1':'0') + '">' +
+    '<span class="dot"></span>' +
+    '<div class="main"><div class="name">' + esc(w.klient) + ' — ' + esc(w.obiekt) + '</div><div class="sub">' + esc(sub) + '</div></div>' +
+    '<span class="chev">›</span>' +
+  '</div>';
+}
+
+function renderStartScreen(){
+  let html = '<header class="app"><div class="toprow" style="padding-top:2px"><div class="titles"><h2 class="plain">HVAC Notatki</h2><div class="crumb">' + esc(todayLabel()) + '</div></div></div></header>';
+  html += '<main class="app hastb">';
+  if(state.listErr) html += '<div class="err">' + esc(state.listErr) + '</div>';
+  html += '<div class="sectionlbl">3 najświeższe wizyty <a id="lnkAll">Wszystkie (' + state.wizytyToku.length + ') →</a></div>';
+  if(state.loadingList && !state.wizytyToku.length) html += '<div class="empty">Wczytuję…</div>';
+  else if(!state.wizytyToku.length) html += '<div class="empty">Brak wizyt w toku — rozpocznij pierwszą niżej.</div>';
+  else state.wizytyToku.slice(0,3).forEach(w => { html += visitCardHtml(w, false); });
+
+  html += '<div class="sectionlbl" style="margin-top:18px">Nowa wizyta</div>';
+  html += '<div class="addbox">' +
+    '<div class="field"><label>Klient</label><input id="newKlient" placeholder="np. Auto-Serwis Nowak"></div>' +
+    '<div class="field"><label>Obiekt / adres</label><input id="newObiekt" placeholder="np. Warsztat, ul. Polna 4"></div>' +
+    '<div id="newErr" class="err" style="display:none"></div>' +
+    '<button class="bigcta" id="btnStartVisit">Rozpocznij →</button>' +
+  '</div>';
+  html += '</main>';
+  html += renderTabbar('start');
+  return html;
+}
+function bindStartScreen(root){
+  bindTabbar(root);
+  root.querySelectorAll('.visitcard').forEach(c => c.addEventListener('click', () => openWizytaWorkspace(c.dataset.id, c.dataset.done==='1')));
+  const all = root.querySelector('#lnkAll'); if(all) all.addEventListener('click', openWizyty);
+  const btn = root.querySelector('#btnStartVisit');
+  if(btn) btn.addEventListener('click', async () => {
+    const klient = val('newKlient').trim();
+    const obiekt = val('newObiekt').trim();
+    const errEl = root.querySelector('#newErr');
+    if(!klient || !obiekt){ errEl.textContent = 'Podaj klienta i obiekt.'; errEl.style.display = 'block'; return; }
+    errEl.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Tworzę…';
+    try{
+      const res = await apiPost({action:'create_wizyta', klient, obiekt});
+      if(!res.ok) throw new Error(res.error || 'Błąd');
+      await openWizytaWorkspace(res.data.id, false);
+    }catch(err){
+      errEl.textContent = 'Nie udało się utworzyć: ' + err.message;
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Rozpocznij →';
+    }
+  });
+}
+
+function renderWizytyScreen(){
+  let html = '<header class="app"><div class="toprow" style="padding-top:2px"><div class="titles"><h2 class="plain">Wizyty w toku</h2></div></div>' +
+    '<div class="hsub">' + state.wizytyToku.length + ' rozpoczętych, od najświeższej aktywności</div></header>';
+  html += '<main class="app hastb">';
+  if(state.listErr) html += '<div class="err">' + esc(state.listErr) + '</div>';
+  if(state.loadingList && !state.wizytyToku.length) html += '<div class="empty">Wczytuję…</div>';
+  else if(!state.wizytyToku.length) html += '<div class="empty">Brak wizyt w toku.</div>';
+  else state.wizytyToku.forEach(w => { html += visitCardHtml(w, false); });
+  html += '</main>';
+  html += renderTabbar('wizyty');
+  return html;
+}
+function renderArchiwumScreen(){
+  let html = '<header class="app"><div class="toprow" style="padding-top:2px"><div class="titles"><h2 class="plain">Archiwum</h2></div></div>' +
+    '<div class="hsub">Zakończone protokoły — podgląd i eksport</div></header>';
+  html += '<main class="app hastb">';
+  if(state.listErr) html += '<div class="err">' + esc(state.listErr) + '</div>';
+  if(state.loadingList && !state.wizytyDone.length) html += '<div class="empty">Wczytuję…</div>';
+  else if(!state.wizytyDone.length) html += '<div class="empty">Brak zakończonych protokołów.</div>';
+  else state.wizytyDone.forEach(w => { html += visitCardHtml(w, true); });
+  html += '</main>';
+  html += renderTabbar('archiwum');
+  return html;
+}
+function bindListScreen(root){
+  bindTabbar(root);
+  root.querySelectorAll('.visitcard').forEach(c => c.addEventListener('click', () => openWizytaWorkspace(c.dataset.id, c.dataset.done==='1')));
+}
+
+function driveThumbUrl(fileId, w){ return 'https://lh3.googleusercontent.com/d/' + fileId + '=w' + (w||200); }
+function thumbUrlFor(u){
+  if(u._localPreview) return u._localPreview;
+  if(u.zdjecieFileId) return driveThumbUrl(u.zdjecieFileId, 200);
+  return '';
+}
+function fullUrlFor(u){ return u.zdjecieUrl || u._localPreview || ''; }
+
+function renderDevCard(u, idx, total){
+  const thumb = thumbUrlFor(u);
+  const thumbHtml = thumb ? '<img src="' + esc(thumb) + '" alt="">' : '📦';
+  const full = fullUrlFor(u);
+  const titleTxt = [u.producent, u.model].filter(Boolean).join(' ');
+  const title = titleTxt ? esc(titleTxt) : '<span style="color:var(--ink-dim)">(bez modelu)</span>';
+  const metaParts = [];
+  if(u.sn) metaParts.push('SN ' + esc(u.sn));
+  if(u.lokalizacja) metaParts.push(esc(u.lokalizacja));
+  const meta = metaParts.length ? metaParts.join(' · ') : '—';
+  const tagClass = u.typ==='zewnetrzna' ? 'tag out' : 'tag';
+  const pending = u._synced===false ? ' <span style="color:var(--amber)" title="niezsynchronizowane">⏳</span>' : '';
+
+  let html = '<div class="devcard">';
+  if(!state.readonly){
+    html += '<div class="reorder">' +
+      '<button class="mv" data-dir="-1" data-id="' + esc(u.id) + '" ' + (idx===0?'disabled':'') + '>▲</button>' +
+      '<button class="mv" data-dir="1" data-id="' + esc(u.id) + '" ' + (idx===total-1?'disabled':'') + '>▼</button>' +
+    '</div>';
+  }
+  html += full
+    ? '<a class="thumb" href="' + esc(full) + '" target="_blank" rel="noopener">' + thumbHtml + '</a>'
+    : '<div class="thumb">' + thumbHtml + '</div>';
+  html += '<div class="body"><div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
+  if(u.typ) html += '<span class="' + tagClass + '">' + esc(typLabel(u.typ)) + '</span>';
+  html += '</div>';
+  if(!state.readonly){
+    html += '<div class="acts">' +
+      '<button class="edit" data-id="' + esc(u.id) + '" title="Edytuj">✎</button>' +
+      '<button class="dup" data-id="' + esc(u.id) + '" title="Duplikuj">⧉</button>' +
+      '<button class="del" data-id="' + esc(u.id) + '" title="Usuń">🗑</button>' +
+    '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderListaTabInner(){
+  let html = '';
+  const queue = buildRetryQueue();
+  if(queue.length && !state.readonly){
+    html += '<div class="err" style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+      '<span>' + queue.length + ' wpis(ów) niezsynchronizowanych</span>' +
+      '<button id="btnRetry" style="background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 10px;font-size:11.5px;font-family:inherit;cursor:pointer">Spróbuj ponownie</button>' +
+    '</div>';
+  }
+  html += '<div class="counterbar"><div class="cnt"><b>' + state.urzadzenia.length + '</b> urządzeń' + (state.readonly?'':' w tej wizycie') + '</div>' +
+    '<div class="sync"><span class="syncdot"></span>' + (queue.length ? 'synchronizuję…' : 'zsynchronizowano') + '</div></div>';
+  if(!state.readonly && state.urzadzenia.length) html += '<div class="sorthint">strzałki ↑↓ zmieniają kolejność — ułóż np. po numerach pomieszczeń</div>';
+
+  if(!state.urzadzenia.length){
+    html += '<div class="empty">' + (state.readonly ? 'Brak urządzeń w tym protokole.' : 'Brak urządzeń — dodaj pierwsze w zakładce „Dodaj urządzenie”.') + '</div>';
+  } else {
+    state.urzadzenia.forEach((u,i) => { html += renderDevCard(u, i, state.urzadzenia.length); });
+  }
+
+  if(!state.readonly && state.urzadzenia.length > 0){
+    html += '<div class="finishcard"><p>Wszystkie urządzenia spisane? Zakończenie przenosi wizytę do Archiwum — dane przestają być edytowalne.</p>' +
+      '<button class="finishbtn" id="btnFinish">✓ Zakończ protokół</button></div>';
+  }
+  return html;
+}
+function bindListaTab(root){
+  root.querySelectorAll('.mv').forEach(b => b.addEventListener('click', () => moveEntry(b.dataset.id, parseInt(b.dataset.dir,10))));
+  root.querySelectorAll('.edit').forEach(b => b.addEventListener('click', () => startEdit(b.dataset.id)));
+  root.querySelectorAll('.dup').forEach(b => b.addEventListener('click', () => duplicateEntry(b.dataset.id)));
+  root.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => deleteEntry(b.dataset.id)));
+  const fin = root.querySelector('#btnFinish'); if(fin) fin.addEventListener('click', finishProtocol);
+  const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllUnsynced);
+}
+
+function renderDodajTabInner(){
+  let html = '';
+  const previewSrc = formPhoto ? formPhoto.previewDataUrl : (formExistingPhotoUrl || '');
+
+  if(!previewSrc){
+    html += '<div class="shotbox"><div class="shotpickrow">' +
+      '<button type="button" id="btnCam"><span class="ic">📷</span>Zrób zdjęcie</button>' +
+      '<button type="button" id="btnGal"><span class="ic">🖼️</span>Z galerii</button>' +
+    '</div><p>tabliczki znamionowej urządzenia — albo pomiń i wpisz dane ręcznie poniżej</p></div>';
+  } else {
+    html += '<div class="thumbrow"><div class="thumb"><img src="' + esc(previewSrc) + '" alt=""></div>';
+    if(analyzing) html += '<div class="scanstate">Analizuję zdjęcie<span class="dot3"><span></span><span></span><span></span></span></div>';
+    else if(analyzeError) html += '<div class="scanstate" style="color:var(--red)">' + esc(analyzeError) + '</div>';
+    else html += '<div class="scanstate" style="color:var(--ink-dim)">Zdjęcie gotowe do zapisu</div>';
+    html += '</div>';
+    html += '<div class="shotpickrow" style="margin-top:-4px;margin-bottom:14px">' +
+      '<button type="button" id="btnCam"><span class="ic">📷</span>Nowe zdjęcie</button>' +
+      '<button type="button" id="btnGal"><span class="ic">🖼️</span>Z galerii</button>' +
+    '</div>';
+  }
+
+  const aiTag = (formAiFilled && !analyzing) ? ' <span class="ailabel">✨ odczytane</span>' : '';
+  const aiCls = (formAiFilled && !analyzing) ? ' ai' : '';
+  html += '<div class="field' + aiCls + '"><label>Producent' + aiTag + '</label><input id="inpProducent" value="' + esc(state.form.producent) + '"></div>';
+  html += '<div class="field' + aiCls + '"><label>Model' + aiTag + '</label><input id="inpModel" value="' + esc(state.form.model) + '"></div>';
+  html += '<div class="field' + aiCls + '"><label>Numer seryjny' + aiTag + '</label><input id="inpSN" value="' + esc(state.form.sn) + '"></div>';
+
+  html += '<div class="field"><label>Typ jednostki</label><div class="segrow">' +
+    ['wewnetrzna','zewnetrzna','inne'].map(t => '<button type="button"' + (formTyp===t?' class="sel"':'') + ' data-t="' + t + '">' + typLabel(t) + '</button>').join('') +
+  '</div></div>';
+
+  html += '<div class="field" style="margin-top:12px"><label>Lokalizacja</label><input id="inpLokalizacja" placeholder="np. 503" value="' + esc(state.form.lokalizacja) + '"></div>';
+  html += '<div class="field"><label>Uwagi (opcjonalnie)</label><textarea id="inpUwagi" placeholder="np. nieszczelność na złączu, do wymiany filtr">' + esc(state.form.uwagi) + '</textarea></div>';
+
+  html += '<div id="formErr" class="err" style="display:none"></div>';
+  html += '<button class="bigcta" id="btnSubmitForm">' + (editingId ? '💾 Zapisz zmiany' : '✓ Dodaj do listy') + '</button>';
+  if(editingId){
+    html += '<button type="button" class="ghostbtn" id="btnCancelEdit">Anuluj edycję</button>';
+    html += '<button type="button" class="ghostbtn" id="btnDeleteFromEdit" style="color:var(--red);border-color:#4a2c28">🗑 Usuń ten wpis</button>';
+  }
+  html += '<input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">';
+  html += '<input type="file" id="galInput" accept="image/*" style="display:none">';
+  return html;
+}
+function bindDodajTab(root){
+  const cam = root.querySelector('#camInput');
+  const gal = root.querySelector('#galInput');
+  const btnCam = root.querySelector('#btnCam');
+  const btnGal = root.querySelector('#btnGal');
+  if(btnCam) btnCam.addEventListener('click', () => cam.click());
+  if(btnGal) btnGal.addEventListener('click', () => gal.click());
+  if(cam) cam.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
+  if(gal) gal.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
+
+  root.querySelectorAll('.segrow button').forEach(b => {
+    b.addEventListener('click', () => {
+      formTyp = b.dataset.t;
+      root.querySelectorAll('.segrow button').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+    });
+  });
+
+  const submitBtn = root.querySelector('#btnSubmitForm');
+  if(submitBtn) submitBtn.addEventListener('click', submitForm);
+  const cancelBtn = root.querySelector('#btnCancelEdit');
+  if(cancelBtn) cancelBtn.addEventListener('click', () => { resetForm(); state.workTab='lista'; render(); });
+  const delBtn = root.querySelector('#btnDeleteFromEdit');
+  if(delBtn) delBtn.addEventListener('click', async () => {
+    const id = editingId;
+    resetForm();
+    state.workTab = 'lista';
+    render();
+    await deleteEntry(id);
+  });
+}
+
+function renderWorkspaceScreen(){
+  const w = state.currentWizyta || {};
+  let html = '<header class="app"><div class="toprow">' +
+    '<button class="exitbtn" id="btnExit">‹ Menu</button>' +
+    '<div class="titles"><h2>' + esc(w.klient||'') + ' <span class="lock">' + (state.readonly?'':'🔒') + '</span></h2>' +
+    '<div class="crumb">' + esc(w.obiekt||'') + '</div></div>' +
+  '</div>';
+  if(state.readonly){
+    html += '<div class="hsub">Zakończono ' + esc(fmtDate(w.dataZakonczenia)) + ' · tylko podgląd</div>';
+  } else {
+    html += '<div class="worktabs">' +
+      '<button class="tabDodaj ' + (state.workTab==='dodaj'?'on':'') + '">' + (editingId ? 'Edytuj urządzenie' : 'Dodaj urządzenie') + '</button>' +
+      '<button class="tabLista ' + (state.workTab==='lista'?'on':'') + '">Lista <span class="cbadge">' + state.urzadzenia.length + '</span></button>' +
+    '</div>';
+  }
+  html += '</header>';
+
+  const activeTab = state.readonly ? 'lista' : state.workTab;
+  html += '<main class="app ' + (activeTab==='lista' ? 'haswb' : '') + '">';
+  html += activeTab==='dodaj' ? renderDodajTabInner() : renderListaTabInner();
+  html += '</main>';
+
+  if(activeTab==='lista'){
+    html += '<div class="bottombar">';
+    if(!state.readonly) html += '<button class="secondary" id="btnGotoAdd">+ Dodaj</button>';
+    html += '<button class="dl" id="btnDownload">⬇<span>Pobierz</span></button>';
+    html += '<button class="share" id="btnShare">↗<span>Udostępnij</span></button>';
+    html += '</div>';
+  }
+  return html;
+}
+function bindWorkspaceScreen(root){
+  const exitBtn = root.querySelector('#btnExit'); if(exitBtn) exitBtn.addEventListener('click', exitWorkspace);
+  const t1 = root.querySelector('.tabDodaj'); if(t1) t1.addEventListener('click', () => { state.workTab='dodaj'; render(); });
+  const t2 = root.querySelector('.tabLista'); if(t2) t2.addEventListener('click', () => { state.workTab='lista'; render(); });
+
+  const activeTab = state.readonly ? 'lista' : state.workTab;
+  if(activeTab==='dodaj') bindDodajTab(root); else bindListaTab(root);
+
+  const dl = root.querySelector('#btnDownload'); if(dl) dl.addEventListener('click', downloadExcel);
+  const sh = root.querySelector('#btnShare'); if(sh) sh.addEventListener('click', shareExcel);
+  const addBtn = root.querySelector('#btnGotoAdd'); if(addBtn) addBtn.addEventListener('click', () => { state.workTab='dodaj'; render(); });
+}
+
+function render(){
+  const app = document.getElementById('app');
+  if(state.screen==='start'){ app.innerHTML = renderStartScreen(); bindStartScreen(app); }
+  else if(state.screen==='wizyty'){ app.innerHTML = renderWizytyScreen(); bindListScreen(app); }
+  else if(state.screen==='archiwum'){ app.innerHTML = renderArchiwumScreen(); bindListScreen(app); }
+  else if(state.screen==='workspace'){ app.innerHTML = renderWorkspaceScreen(); bindWorkspaceScreen(app); }
+}
+
+// ============ START ============
+resetForm();
+openStart();
+</script>
+</body>
+</html>
