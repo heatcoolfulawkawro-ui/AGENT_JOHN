@@ -11,8 +11,9 @@
  *  GET  ?action=get_wizyta&id=XXX                       (wizyta + jej urządzenia)
  *  POST {action:'create_wizyta', klient, obiekt}
  *  POST {action:'finish_wizyta', id}
+ *  POST {action:'delete_wizyta', id}
  *  POST {action:'analyze_photo', imageBase64, mimeType}
- *  POST {action:'add_urzadzenie', wizytaId, producent, model, sn, typ, lokalizacja, uwagi, imageBase64, mimeType}
+ *  POST {action:'add_urzadzenie', wizytaId, producent, model, sn, typ, system, lokalizacja, uwagi, imageBase64, mimeType}
  *  POST {action:'update_urzadzenie', id, ...pola do zmiany, imageBase64 (opcjonalnie nowe zdjęcie)}
  *  POST {action:'delete_urzadzenie', id}
  *  POST {action:'reorder_urzadzenia', wizytaId, orderedIds:[...]}
@@ -60,7 +61,10 @@ function getWizytySheet() {
 function getUrzadzeniaSheet() {
   const s = getSheet('Urzadzenia');
   if (s.getLastRow() === 0) {
-    s.appendRow(['ID', 'WizytaID', 'Kolejnosc', 'Producent', 'Model', 'SN', 'Typ', 'Lokalizacja', 'Uwagi', 'ZdjecieUrl', 'ZdjecieFileId', 'DataUtworzenia']);
+    s.appendRow(['ID', 'WizytaID', 'Kolejnosc', 'Producent', 'Model', 'SN', 'Typ', 'Lokalizacja', 'Uwagi', 'ZdjecieUrl', 'ZdjecieFileId', 'DataUtworzenia', 'System']);
+  } else if (s.getLastColumn() < 13) {
+    // Migracja arkusza założonego przed dodaniem kolumny System (Multi/VRF: S1/S2/M1/M2).
+    s.getRange(1, 13).setValue('System');
   }
   return s;
 }
@@ -133,11 +137,31 @@ function finishWizyta(id) {
   throw new Error('Nie znaleziono wizyty');
 }
 
+// Kasuje wizytę i wszystkie jej urządzenia z arkuszy. Zdjęcia na Dysku zostają
+// nietknięte (celowo — usuwanie plików to osobne, bardziej ryzykowne działanie).
+function deleteWizyta(id) {
+  const uSheet = getUrzadzeniaSheet();
+  const uRows = uSheet.getDataRange().getValues();
+  for (let i = uRows.length - 1; i >= 1; i--) {
+    if (String(uRows[i][1]) === String(id)) uSheet.deleteRow(i + 1);
+  }
+  const wSheet = getWizytySheet();
+  const wRows = wSheet.getDataRange().getValues();
+  for (let i = 1; i < wRows.length; i++) {
+    if (String(wRows[i][0]) === String(id)) {
+      wSheet.deleteRow(i + 1);
+      return true;
+    }
+  }
+  throw new Error('Nie znaleziono wizyty');
+}
+
 // ============ URZĄDZENIA ============
 function rowToUrzadzenie(r) {
   return {
     id: r[0], wizytaId: r[1], kolejnosc: r[2], producent: r[3], model: r[4], sn: r[5],
-    typ: r[6], lokalizacja: r[7], uwagi: r[8], zdjecieUrl: r[9], zdjecieFileId: r[10], dataUtworzenia: r[11]
+    typ: r[6], lokalizacja: r[7], uwagi: r[8], zdjecieUrl: r[9], zdjecieFileId: r[10], dataUtworzenia: r[11],
+    system: r[12] || ''
   };
 }
 
@@ -202,13 +226,13 @@ function addUrzadzenie(data) {
   const ts = nowStr();
   getUrzadzeniaSheet().appendRow([
     id, data.wizytaId, kolejnosc, data.producent || '', data.model || '', data.sn || '',
-    data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts
+    data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts, data.system || ''
   ]);
   touchWizyta(data.wizytaId);
   return {
     id: id, wizytaId: data.wizytaId, kolejnosc: kolejnosc, producent: data.producent || '', model: data.model || '',
     sn: data.sn || '', typ: data.typ || '', lokalizacja: data.lokalizacja || '', uwagi: data.uwagi || '',
-    zdjecieUrl: foto.url, zdjecieFileId: foto.fileId, dataUtworzenia: ts
+    zdjecieUrl: foto.url, zdjecieFileId: foto.fileId, dataUtworzenia: ts, system: data.system || ''
   };
 }
 
@@ -230,6 +254,7 @@ function updateUrzadzenie(data) {
     if (data.typ !== undefined) sheet.getRange(rowNum, 7).setValue(data.typ);
     if (data.lokalizacja !== undefined) sheet.getRange(rowNum, 8).setValue(data.lokalizacja);
     if (data.uwagi !== undefined) sheet.getRange(rowNum, 9).setValue(data.uwagi);
+    if (data.system !== undefined) sheet.getRange(rowNum, 13).setValue(data.system);
 
     if (data.imageBase64) {
       const merged = {
@@ -244,7 +269,7 @@ function updateUrzadzenie(data) {
     }
 
     touchWizyta(wizytaId);
-    return rowToUrzadzenie(sheet.getRange(rowNum, 1, 1, 12).getValues()[0]);
+    return rowToUrzadzenie(sheet.getRange(rowNum, 1, 1, 13).getValues()[0]);
   }
   throw new Error('Nie znaleziono urządzenia');
 }
@@ -347,6 +372,7 @@ function doPost(e) {
     const action = body.action;
     if (action === 'create_wizyta') return jsonOut({ ok: true, data: createWizyta(body.klient, body.obiekt) });
     if (action === 'finish_wizyta') return jsonOut({ ok: true, done: finishWizyta(body.id) });
+    if (action === 'delete_wizyta') return jsonOut({ ok: true, deleted: deleteWizyta(body.id) });
     if (action === 'analyze_photo') return jsonOut({ ok: true, data: analyzePhoto(body.imageBase64, body.mimeType) });
     if (action === 'add_urzadzenie') return jsonOut({ ok: true, data: addUrzadzenie(body) });
     if (action === 'update_urzadzenie') return jsonOut({ ok: true, data: updateUrzadzenie(body) });

@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HVAC Notatki</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -70,13 +70,6 @@
   .addbox .field{ margin-bottom:9px; }
   .addbox .field input{ background:var(--panel); }
 
-  .segrow{ display:flex; gap:6px; }
-  .segrow button{
-    flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim);
-    padding:10px 4px; border-radius:8px; font-size:12.5px; font-family:inherit; cursor:pointer;
-  }
-  .segrow button.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
-
   .shotbox{ background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius); padding:14px; text-align:center; margin-bottom:14px; }
   .shotpickrow{ display:flex; gap:8px; margin-bottom:10px; }
   .shotpickrow button{ flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); font-family:inherit; font-size:12.5px; font-weight:600; border-radius:9px; padding:13px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; }
@@ -84,7 +77,7 @@
   .shotbox p{ margin:0; font-size:11.5px; color:var(--ink-dim); }
 
   .thumbrow{ display:flex; gap:10px; align-items:center; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:12px; }
-  .thumb{ width:56px; height:56px; border-radius:7px; background:linear-gradient(135deg,#2a3540,#1a232b); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:19px; overflow:hidden; text-decoration:none; }
+  .thumb{ width:56px; height:56px; border-radius:7px; background:linear-gradient(135deg,#2a3540,#1a232b); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:19px; overflow:hidden; text-decoration:none; border:none; padding:0; font-family:inherit; cursor:pointer; }
   .thumb img{ width:100%; height:100%; object-fit:cover; }
   .scanstate{ font-size:13px; color:var(--amber); display:flex; align-items:center; gap:8px; }
   .dot3{ display:inline-flex; gap:3px; }
@@ -141,12 +134,38 @@
   .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--bg); background:var(--green); padding:8px 15px; border-radius:9px; z-index:50; font-weight:600; opacity:0; pointer-events:none; transition:opacity .25s; max-width:88vw; text-align:center; box-shadow:0 8px 20px -6px #000a; }
   .toast.show{ opacity:1; }
   .toast.err{ background:var(--red); color:#2a1210; }
+
+  .lightbox{ position:fixed; inset:0; background:rgba(6,9,11,.94); z-index:60; display:none; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+  .lightbox.show{ display:flex; }
+  .lightbox img{ max-width:100%; max-height:78vh; object-fit:contain; border-radius:8px; touch-action:pinch-zoom; }
+  .lbclose{ position:absolute; top:16px; right:16px; width:38px; height:38px; border-radius:50%; background:var(--panel2); border:1px solid var(--line); color:var(--ink); font-size:18px; cursor:pointer; }
+  .lbopen{ margin-top:14px; color:var(--amber); font-size:12.5px; text-decoration:none; }
+
+  .folderpath{ font-size:10.5px; color:var(--ink-dim); margin:2px 0 12px; word-break:break-word; }
+
+  .typfieldwrap .typegrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+  .typcol{ background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:8px; display:flex; flex-direction:column; gap:5px; }
+  .typcolhead{ font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); text-align:center; margin-bottom:2px; }
+  .typcolhead.zew{ color:var(--blue); }
+  .typebtn{ background:var(--panel); border:1px solid var(--line); color:var(--ink-dim); border-radius:7px; padding:9px 4px; font-size:12.5px; font-family:inherit; cursor:pointer; }
+  .typebtn.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
+  .typcol:has(.typcolhead.zew) .typebtn.sel{ background:#152230; border-color:var(--blue); color:var(--blue); }
+  .typeinne{ width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); border-radius:8px; padding:9px; font-size:12.5px; font-family:inherit; cursor:pointer; }
+  .typeinne.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
+
+  .delvisit{ background:none; border:none; color:var(--red); font-size:15px; cursor:pointer; padding:6px; flex-shrink:0; }
 </style>
 </head>
 <body>
 
 <div class="toast" id="toast"></div>
 <div id="app"></div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lbclose" id="lbClose" type="button">✕</button>
+  <img id="lbImg" src="" alt="">
+  <a class="lbopen" id="lbOpenExt" target="_blank" rel="noopener">Otwórz w nowej karcie ↗</a>
+</div>
 
 <script>
 // ============ KONFIGURACJA ============
@@ -158,12 +177,25 @@ const TOKEN = 'hvac_580gMoLePXK8REU7k8KfTyG5';
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function val(id){ const el=document.getElementById(id); return el ? el.value : ''; }
 function isLocalOnlyId(id){ return String(id).indexOf('local_')===0; }
+const TYP_GROUPS = [
+  { key:'split', label:'Split' },
+  { key:'multi', label:'Multi' },
+  { key:'vrf', label:'VRF' }
+];
 function typLabel(t){
-  if(t==='wewnetrzna') return 'Wewnętrzna';
-  if(t==='zewnetrzna') return 'Zewnętrzna';
+  if(!t) return '';
   if(t==='inne') return 'Inne';
-  return '';
+  if(t==='wewnetrzna') return 'Wewnętrzna'; // wpisy sprzed rozszerzenia typów
+  if(t==='zewnetrzna') return 'Zewnętrzna'; // wpisy sprzed rozszerzenia typów
+  const m = /^(split|multi|vrf)_(wew|zew)$/.exec(t);
+  if(m){
+    const grp = TYP_GROUPS.find(g => g.key===m[1]);
+    return (grp ? grp.label : m[1]) + ' ' + (m[2]==='wew' ? 'Wew.' : 'Zew.');
+  }
+  return t;
 }
+function isZewTyp(t){ return t==='zewnetrzna' || /_zew$/.test(t||''); }
+function usesSystemTag(t){ return /^(multi|vrf)_/.test(t||''); }
 function pad2(n){ return ('0'+n).slice(-2); }
 function fmtDate(iso){
   if(!iso) return '';
@@ -183,6 +215,17 @@ function fmtRelative(iso){
   return fmtDate(iso);
 }
 function todayLabel(){ return fmtDate(new Date().toISOString()); }
+function fmtDateISO(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d)) return '';
+  return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate());
+}
+function folderPathLabel(){
+  const w = state.currentWizyta;
+  if(!w || !w.klient) return '';
+  return '📁 HVAC Notatki / ' + w.klient + ' / ' + w.obiekt + ' — ' + fmtDateISO(w.dataUtworzenia);
+}
 function sanitizeFileName(s){ return String(s||'').replace(/[\\\/:*?"<>|]/g,'-').trim(); }
 
 function showToast(msg, isErr){
@@ -192,6 +235,22 @@ function showToast(msg, isErr){
   clearTimeout(showToast._t);
   showToast._t = setTimeout(()=> el.classList.remove('show'), 2400);
 }
+
+// ============ LIGHTBOX (podgląd zdjęcia w appce) ============
+function openLightbox(url, externalUrl){
+  if(!url) return;
+  document.getElementById('lbImg').src = url;
+  document.getElementById('lbOpenExt').href = externalUrl || url;
+  document.getElementById('lightbox').classList.add('show');
+}
+function closeLightbox(){
+  document.getElementById('lightbox').classList.remove('show');
+  document.getElementById('lbImg').src = '';
+}
+document.getElementById('lbClose').addEventListener('click', closeLightbox);
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if(e.target.id === 'lightbox') closeLightbox();
+});
 
 // ============ API ============
 async function apiGet(params){
@@ -245,13 +304,13 @@ let analyzeError = '';
 
 function resetForm(){
   editingId = null;
-  formTyp = 'wewnetrzna';
+  formTyp = 'split_wew';
   formPhoto = null;
   formExistingPhotoUrl = null;
   formAiFilled = false;
   analyzing = false;
   analyzeError = '';
-  state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'' };
+  state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'', system:'' };
 }
 
 // ============ ZDJĘCIE: wczytanie + zmniejszenie ============
@@ -417,6 +476,7 @@ async function submitForm(){
   const sn = val('inpSN').trim();
   const lokalizacja = val('inpLokalizacja').trim();
   const uwagi = val('inpUwagi').trim();
+  const system = val('inpSystem').trim();
   const errEl = document.getElementById('formErr');
 
   if(!lokalizacja){
@@ -425,7 +485,7 @@ async function submitForm(){
   }
   if(errEl) errEl.style.display = 'none';
 
-  const payload = { wizytaId: state.currentWizyta.id, producent, model, sn, typ: formTyp, lokalizacja, uwagi };
+  const payload = { wizytaId: state.currentWizyta.id, producent, model, sn, typ: formTyp, system, lokalizacja, uwagi };
   if(formPhoto){ payload.imageBase64 = formPhoto.base64; payload.mimeType = formPhoto.mimeType; }
   // Tylko nowo wybrane zdjęcie ma sens jako _localPreview (surowy data: URL, renderowalny
   // w <img>). formExistingPhotoUrl bywa linkiem do strony podglądu Drive — nieużywalnym
@@ -469,7 +529,7 @@ function startEdit(id){
   formExistingPhotoUrl = u.zdjecieFileId ? driveThumbUrl(u.zdjecieFileId, 600) : (u._localPreview || null);
   formAiFilled = false;
   analyzeError = '';
-  state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'' };
+  state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
   state.workTab = 'dodaj';
   render();
 }
@@ -483,7 +543,7 @@ function duplicateEntry(id){
   formExistingPhotoUrl = null;
   formAiFilled = false;
   analyzeError = '';
-  state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'' };
+  state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
   state.workTab = 'dodaj';
   render();
   showToast('skopiowano — zeskanuj nową tabliczkę albo popraw dane');
@@ -618,9 +678,13 @@ function visitCardHtml(w, isDone){
   const sub = isDone
     ? 'Zakończono ' + fmtDate(w.dataZakonczenia) + ' · ' + w.liczbaUrzadzen + ' urządzeń'
     : w.liczbaUrzadzen + ' urządzeń · ' + fmtRelative(w.dataAktywnosci);
+  const delBtn = isDone
+    ? '<button type="button" class="delvisit" data-id="' + esc(w.id) + '" data-name="' + esc(w.klient + ' — ' + w.obiekt) + '" title="Usuń z archiwum">🗑</button>'
+    : '';
   return '<div class="visitcard' + (isDone?' done':'') + '" data-id="' + esc(w.id) + '" data-done="' + (isDone?'1':'0') + '">' +
     '<span class="dot"></span>' +
     '<div class="main"><div class="name">' + esc(w.klient) + ' — ' + esc(w.obiekt) + '</div><div class="sub">' + esc(sub) + '</div></div>' +
+    delBtn +
     '<span class="chev">›</span>' +
   '</div>';
 }
@@ -696,6 +760,23 @@ function renderArchiwumScreen(){
 function bindListScreen(root){
   bindTabbar(root);
   root.querySelectorAll('.visitcard').forEach(c => c.addEventListener('click', () => openWizytaWorkspace(c.dataset.id, c.dataset.done==='1')));
+  root.querySelectorAll('.delvisit').forEach(b => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteVisit(b.dataset.id, b.dataset.name);
+  }));
+}
+
+async function deleteVisit(id, name){
+  if(!confirm('Usunąć protokół „' + name + '” z archiwum?\n\nZniknie z appki razem ze wszystkimi zapisanymi w nim urządzeniami. Zdjęcia na Dysku Google zostaną — to kasuje tylko wpisy w appce.')) return;
+  if(!confirm('Ostatnie potwierdzenie — tej operacji nie da się cofnąć. Na pewno usunąć „' + name + '”?')) return;
+  try{
+    const res = await apiPost({action:'delete_wizyta', id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('Usunięto z archiwum');
+    await refreshWizytyDone();
+  }catch(err){
+    showToast('Nie udało się usunąć: ' + err.message, true);
+  }
 }
 
 function driveThumbUrl(fileId, w){ return 'https://lh3.googleusercontent.com/d/' + fileId + '=w' + (w||200); }
@@ -705,18 +786,25 @@ function thumbUrlFor(u){
   return '';
 }
 function fullUrlFor(u){ return u.zdjecieUrl || u._localPreview || ''; }
+function lightboxUrlFor(u){
+  if(u._localPreview) return u._localPreview;
+  if(u.zdjecieFileId) return driveThumbUrl(u.zdjecieFileId, 1600);
+  return '';
+}
 
 function renderDevCard(u, idx, total){
   const thumb = thumbUrlFor(u);
   const thumbHtml = thumb ? '<img src="' + esc(thumb) + '" alt="">' : '📦';
-  const full = fullUrlFor(u);
+  const lbUrl = lightboxUrlFor(u);
+  const extUrl = fullUrlFor(u);
   const titleTxt = [u.producent, u.model].filter(Boolean).join(' ');
   const title = titleTxt ? esc(titleTxt) : '<span style="color:var(--ink-dim)">(bez modelu)</span>';
   const metaParts = [];
   if(u.sn) metaParts.push('SN ' + esc(u.sn));
   if(u.lokalizacja) metaParts.push(esc(u.lokalizacja));
+  if(u.system) metaParts.push(esc(u.system));
   const meta = metaParts.length ? metaParts.join(' · ') : '—';
-  const tagClass = u.typ==='zewnetrzna' ? 'tag out' : 'tag';
+  const tagClass = isZewTyp(u.typ) ? 'tag out' : 'tag';
   const pending = u._synced===false ? ' <span style="color:var(--amber)" title="niezsynchronizowane">⏳</span>' : '';
 
   let html = '<div class="devcard">';
@@ -726,8 +814,8 @@ function renderDevCard(u, idx, total){
       '<button class="mv" data-dir="1" data-id="' + esc(u.id) + '" ' + (idx===total-1?'disabled':'') + '>▼</button>' +
     '</div>';
   }
-  html += full
-    ? '<a class="thumb" href="' + esc(full) + '" target="_blank" rel="noopener">' + thumbHtml + '</a>'
+  html += lbUrl
+    ? '<button type="button" class="thumb lbtrigger" data-lb="' + esc(lbUrl) + '" data-ext="' + esc(extUrl) + '">' + thumbHtml + '</button>'
     : '<div class="thumb">' + thumbHtml + '</div>';
   html += '<div class="body"><div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
   if(u.typ) html += '<span class="' + tagClass + '">' + esc(typLabel(u.typ)) + '</span>';
@@ -754,6 +842,8 @@ function renderListaTabInner(){
   }
   html += '<div class="counterbar"><div class="cnt"><b>' + state.urzadzenia.length + '</b> urządzeń' + (state.readonly?'':' w tej wizycie') + '</div>' +
     '<div class="sync"><span class="syncdot"></span>' + (queue.length ? 'synchronizuję…' : 'zsynchronizowano') + '</div></div>';
+  const fp = folderPathLabel();
+  if(fp) html += '<div class="folderpath">' + esc(fp) + '</div>';
   if(!state.readonly && state.urzadzenia.length) html += '<div class="sorthint">strzałki ↑↓ zmieniają kolejność — ułóż np. po numerach pomieszczeń</div>';
 
   if(!state.urzadzenia.length){
@@ -769,6 +859,7 @@ function renderListaTabInner(){
   return html;
 }
 function bindListaTab(root){
+  root.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
   root.querySelectorAll('.mv').forEach(b => b.addEventListener('click', () => moveEntry(b.dataset.id, parseInt(b.dataset.dir,10))));
   root.querySelectorAll('.edit').forEach(b => b.addEventListener('click', () => startEdit(b.dataset.id)));
   root.querySelectorAll('.dup').forEach(b => b.addEventListener('click', () => duplicateEntry(b.dataset.id)));
@@ -787,7 +878,7 @@ function renderDodajTabInner(){
       '<button type="button" id="btnGal"><span class="ic">🖼️</span>Z galerii</button>' +
     '</div><p>tabliczki znamionowej urządzenia — albo pomiń i wpisz dane ręcznie poniżej</p></div>';
   } else {
-    html += '<div class="thumbrow"><div class="thumb"><img src="' + esc(previewSrc) + '" alt=""></div>';
+    html += '<div class="thumbrow"><button type="button" class="thumb lbtrigger" data-lb="' + esc(previewSrc) + '" data-ext="' + esc(previewSrc) + '"><img src="' + esc(previewSrc) + '" alt=""></button>';
     if(analyzing) html += '<div class="scanstate">Analizuję zdjęcie<span class="dot3"><span></span><span></span><span></span></span></div>';
     else if(analyzeError) html += '<div class="scanstate" style="color:var(--red)">' + esc(analyzeError) + '</div>';
     else html += '<div class="scanstate" style="color:var(--ink-dim)">Zdjęcie gotowe do zapisu</div>';
@@ -804,9 +895,20 @@ function renderDodajTabInner(){
   html += '<div class="field' + aiCls + '"><label>Model' + aiTag + '</label><input id="inpModel" value="' + esc(state.form.model) + '"></div>';
   html += '<div class="field' + aiCls + '"><label>Numer seryjny' + aiTag + '</label><input id="inpSN" value="' + esc(state.form.sn) + '"></div>';
 
-  html += '<div class="field"><label>Typ jednostki</label><div class="segrow">' +
-    ['wewnetrzna','zewnetrzna','inne'].map(t => '<button type="button"' + (formTyp===t?' class="sel"':'') + ' data-t="' + t + '">' + typLabel(t) + '</button>').join('') +
-  '</div></div>';
+  html += '<div class="field typfieldwrap" id="typFieldWrap"><label>Typ jednostki</label>';
+  html += '<div class="typegrid">';
+  html += '<div class="typcol"><div class="typcolhead">Wewnętrzna</div>' +
+    TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_wew')?' sel':'') + '" data-t="' + g.key + '_wew">' + g.label + '</button>').join('') +
+  '</div>';
+  html += '<div class="typcol"><div class="typcolhead zew">Zewnętrzna</div>' +
+    TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_zew')?' sel':'') + '" data-t="' + g.key + '_zew">' + g.label + '</button>').join('') +
+  '</div>';
+  html += '</div>';
+  html += '<button type="button" class="typeinne' + (formTyp==='inne'?' sel':'') + '" data-t="inne">Inne (bez podziału wew/zew)</button>';
+  html += '</div>';
+  if(usesSystemTag(formTyp)){
+    html += '<div class="field" id="systemFieldWrap"><label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '"></div>';
+  }
 
   html += '<div class="field" style="margin-top:12px"><label>Lokalizacja</label><input id="inpLokalizacja" placeholder="np. 503" value="' + esc(state.form.lokalizacja) + '"></div>';
   html += '<div class="field"><label>Uwagi (opcjonalnie)</label><textarea id="inpUwagi" placeholder="np. nieszczelność na złączu, do wymiany filtr">' + esc(state.form.uwagi) + '</textarea></div>';
@@ -821,7 +923,24 @@ function renderDodajTabInner(){
   html += '<input type="file" id="galInput" accept="image/*" style="display:none">';
   return html;
 }
+// Wstawia/usuwa pole System bez pełnego render() — inaczej stracilibyśmy to,
+// co serwisant już wpisał w Producenta/Model/SN/Lokalizację/Uwagi w tym momencie.
+function updateSystemFieldVisibility(root){
+  const existing = root.querySelector('#systemFieldWrap');
+  const needed = usesSystemTag(formTyp);
+  if(needed && !existing){
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    wrap.id = 'systemFieldWrap';
+    wrap.innerHTML = '<label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '">';
+    root.querySelector('#typFieldWrap').insertAdjacentElement('afterend', wrap);
+  } else if(!needed && existing){
+    existing.remove();
+  }
+}
+
 function bindDodajTab(root){
+  root.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
   const cam = root.querySelector('#camInput');
   const gal = root.querySelector('#galInput');
   const btnCam = root.querySelector('#btnCam');
@@ -831,11 +950,12 @@ function bindDodajTab(root){
   if(cam) cam.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
   if(gal) gal.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
 
-  root.querySelectorAll('.segrow button').forEach(b => {
+  root.querySelectorAll('.typebtn, .typeinne').forEach(b => {
     b.addEventListener('click', () => {
       formTyp = b.dataset.t;
-      root.querySelectorAll('.segrow button').forEach(x => x.classList.remove('sel'));
+      root.querySelectorAll('.typebtn, .typeinne').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
+      updateSystemFieldVisibility(root);
     });
   });
 
