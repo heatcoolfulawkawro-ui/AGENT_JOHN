@@ -14,7 +14,8 @@
  *  POST {action:'delete_wizyta', id}
  *  POST {action:'analyze_photo', imageBase64, mimeType}
  *  POST {action:'add_urzadzenie', wizytaId, producent, model, sn, typ, system, lokalizacja, uwagi, imageBase64, mimeType}
- *  POST {action:'update_urzadzenie', id, ...pola do zmiany, imageBase64 (opcjonalnie nowe zdjęcie)}
+ *  POST {action:'update_urzadzenie', id, ...pola do zmiany (w tym parujZId — ID jednostki
+ *        zewnętrznej, do której przypięta jest wewnętrzna), imageBase64 (opcjonalnie nowe zdjęcie)}
  *  POST {action:'delete_urzadzenie', id}
  *  POST {action:'reorder_urzadzenia', wizytaId, orderedIds:[...]}
  */
@@ -61,10 +62,11 @@ function getWizytySheet() {
 function getUrzadzeniaSheet() {
   const s = getSheet('Urzadzenia');
   if (s.getLastRow() === 0) {
-    s.appendRow(['ID', 'WizytaID', 'Kolejnosc', 'Producent', 'Model', 'SN', 'Typ', 'Lokalizacja', 'Uwagi', 'ZdjecieUrl', 'ZdjecieFileId', 'DataUtworzenia', 'System']);
-  } else if (s.getLastColumn() < 13) {
-    // Migracja arkusza założonego przed dodaniem kolumny System (Multi/VRF: S1/S2/M1/M2).
-    s.getRange(1, 13).setValue('System');
+    s.appendRow(['ID', 'WizytaID', 'Kolejnosc', 'Producent', 'Model', 'SN', 'Typ', 'Lokalizacja', 'Uwagi', 'ZdjecieUrl', 'ZdjecieFileId', 'DataUtworzenia', 'System', 'ParujZId']);
+  } else {
+    // Migracja arkusza założonego przed dodaniem kolumn System / ParujZId.
+    if (s.getLastColumn() < 13) s.getRange(1, 13).setValue('System');
+    if (s.getLastColumn() < 14) s.getRange(1, 14).setValue('ParujZId');
   }
   return s;
 }
@@ -161,7 +163,7 @@ function rowToUrzadzenie(r) {
   return {
     id: r[0], wizytaId: r[1], kolejnosc: r[2], producent: r[3], model: r[4], sn: r[5],
     typ: r[6], lokalizacja: r[7], uwagi: r[8], zdjecieUrl: r[9], zdjecieFileId: r[10], dataUtworzenia: r[11],
-    system: r[12] || ''
+    system: r[12] || '', parujZId: r[13] || ''
   };
 }
 
@@ -226,13 +228,13 @@ function addUrzadzenie(data) {
   const ts = nowStr();
   getUrzadzeniaSheet().appendRow([
     id, data.wizytaId, kolejnosc, data.producent || '', data.model || '', data.sn || '',
-    data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts, data.system || ''
+    data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts, data.system || '', data.parujZId || ''
   ]);
   touchWizyta(data.wizytaId);
   return {
     id: id, wizytaId: data.wizytaId, kolejnosc: kolejnosc, producent: data.producent || '', model: data.model || '',
     sn: data.sn || '', typ: data.typ || '', lokalizacja: data.lokalizacja || '', uwagi: data.uwagi || '',
-    zdjecieUrl: foto.url, zdjecieFileId: foto.fileId, dataUtworzenia: ts, system: data.system || ''
+    zdjecieUrl: foto.url, zdjecieFileId: foto.fileId, dataUtworzenia: ts, system: data.system || '', parujZId: data.parujZId || ''
   };
 }
 
@@ -255,6 +257,7 @@ function updateUrzadzenie(data) {
     if (data.lokalizacja !== undefined) sheet.getRange(rowNum, 8).setValue(data.lokalizacja);
     if (data.uwagi !== undefined) sheet.getRange(rowNum, 9).setValue(data.uwagi);
     if (data.system !== undefined) sheet.getRange(rowNum, 13).setValue(data.system);
+    if (data.parujZId !== undefined) sheet.getRange(rowNum, 14).setValue(data.parujZId);
 
     if (data.imageBase64) {
       const merged = {
@@ -269,7 +272,7 @@ function updateUrzadzenie(data) {
     }
 
     touchWizyta(wizytaId);
-    return rowToUrzadzenie(sheet.getRange(rowNum, 1, 1, 13).getValues()[0]);
+    return rowToUrzadzenie(sheet.getRange(rowNum, 1, 1, 14).getValues()[0]);
   }
   throw new Error('Nie znaleziono urządzenia');
 }

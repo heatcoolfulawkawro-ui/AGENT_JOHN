@@ -102,8 +102,8 @@
   .devcard .body{ flex:1; min-width:0; }
   .devcard .title{ font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .devcard .meta{ font-size:11.5px; color:var(--ink-dim); margin-top:2px; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .devcard .tag{ display:inline-block; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:10px; color:var(--ink-dim); margin-top:4px; }
-  .devcard .tag.out{ color:var(--blue); border-color:#2a4256; }
+  .tag{ display:inline-block; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:10px; color:var(--ink-dim); margin-top:4px; }
+  .tag.out{ color:var(--blue); border-color:#2a4256; }
   .devcard .acts{ display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
   .devcard .acts button{
     background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim);
@@ -154,6 +154,25 @@
   .typeinne.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
 
   .delvisit{ background:none; border:none; color:var(--red); font-size:15px; cursor:pointer; padding:6px; flex-shrink:0; }
+
+  .paircard{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 13px; margin-bottom:10px; }
+  .pairhead{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .pairhead .dot{ width:8px; height:8px; border-radius:50%; background:var(--blue); flex-shrink:0; }
+  .pairname{ font-size:13.5px; font-weight:600; }
+  .pairempty{ font-size:11.5px; color:var(--ink-dim); padding:4px 0 2px 16px; }
+  .pairchild{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0 8px 16px; border-top:1px dashed var(--line); }
+  .pairchild:first-of-type{ border-top:none; }
+  .pairchild.unassigned{ padding:10px 12px; border-top:none; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:7px; }
+  .pcname{ font-size:12.5px; }
+  .pcbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--amber); border-radius:7px; padding:6px 10px; font-size:11.5px; font-family:inherit; cursor:pointer; flex-shrink:0; }
+
+  .pairmodal{ position:fixed; inset:0; background:rgba(6,9,11,.85); z-index:55; display:none; align-items:flex-end; justify-content:center; }
+  .pairmodal.show{ display:flex; }
+  .pairmodalbox{ width:100%; max-width:480px; background:var(--panel); border:1px solid var(--line); border-radius:16px 16px 0 0; padding:16px; max-height:70vh; overflow-y:auto; }
+  .pairmodaltitle{ font-size:13.5px; font-weight:700; margin-bottom:10px; }
+  .pairoption{ display:block; width:100%; text-align:left; background:var(--panel2); border:1px solid var(--line); color:var(--ink); border-radius:9px; padding:11px 12px; font-size:13px; font-family:inherit; cursor:pointer; margin-bottom:7px; }
+  .pairoption.sel{ border-color:var(--green); color:var(--green); }
+  .pairoption.unassign{ color:var(--red); }
 </style>
 </head>
 <body>
@@ -165,6 +184,14 @@
   <button class="lbclose" id="lbClose" type="button">✕</button>
   <img id="lbImg" src="" alt="">
   <a class="lbopen" id="lbOpenExt" target="_blank" rel="noopener">Otwórz w nowej karcie ↗</a>
+</div>
+
+<div class="pairmodal" id="pairModal">
+  <div class="pairmodalbox">
+    <div class="pairmodaltitle" id="pairModalTitle"></div>
+    <div id="pairModalList"></div>
+    <button type="button" class="ghostbtn" id="pairModalCancel">Anuluj</button>
+  </div>
 </div>
 
 <script>
@@ -251,6 +278,70 @@ document.getElementById('lbClose').addEventListener('click', closeLightbox);
 document.getElementById('lightbox').addEventListener('click', (e) => {
   if(e.target.id === 'lightbox') closeLightbox();
 });
+
+// ============ PAROWANIE (wybieraczka zewnętrzna ↔ wewnętrzna) ============
+let pairModalIndoorId = null;
+function devShortLabel(u){
+  const parts = [];
+  if(u.lokalizacja) parts.push(u.lokalizacja);
+  const t = [u.producent, u.model].filter(Boolean).join(' ');
+  if(t) parts.push(t);
+  return parts.length ? parts.join(' · ') : '(bez nazwy)';
+}
+function outdoorUnits(){ return state.urzadzenia.filter(u => isZewTyp(u.typ)); }
+function indoorUnits(){ return state.urzadzenia.filter(u => u.typ && u.typ!=='inne' && !isZewTyp(u.typ)); }
+function childrenOf(outdoorId){ return indoorUnits().filter(u => u.parujZId === outdoorId); }
+function unassignedIndoor(){ return indoorUnits().filter(u => !u.parujZId); }
+
+function openPairModal(indoorId){
+  const indoor = state.urzadzenia.find(u => u.id === indoorId);
+  if(!indoor) return;
+  pairModalIndoorId = indoorId;
+  document.getElementById('pairModalTitle').textContent = 'Przypisz: ' + devShortLabel(indoor);
+  let html = '';
+  outdoorUnits().forEach(o => {
+    const sel = indoor.parujZId === o.id;
+    html += '<button type="button" class="pairoption' + (sel?' sel':'') + '" data-out="' + esc(o.id) + '">' +
+      esc(devShortLabel(o)) + (o.system?' · '+esc(o.system):'') + (sel?' ✓':'') + '</button>';
+  });
+  html += '<button type="button" class="pairoption unassign" data-out="">— Brak (odepnij) —</button>';
+  const list = document.getElementById('pairModalList');
+  list.innerHTML = html;
+  list.querySelectorAll('.pairoption').forEach(b => {
+    b.addEventListener('click', () => {
+      setParowanie(pairModalIndoorId, b.dataset.out || '');
+      closePairModal();
+    });
+  });
+  document.getElementById('pairModal').classList.add('show');
+}
+function closePairModal(){
+  document.getElementById('pairModal').classList.remove('show');
+  pairModalIndoorId = null;
+}
+document.getElementById('pairModalCancel').addEventListener('click', closePairModal);
+document.getElementById('pairModal').addEventListener('click', (e) => {
+  if(e.target.id === 'pairModal') closePairModal();
+});
+
+async function setParowanie(indoorId, outdoorId){
+  const i = state.urzadzenia.findIndex(u => u.id === indoorId);
+  if(i < 0) return;
+  state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], { parujZId: outdoorId || '' });
+  persistLocalUrzadzenia();
+  render();
+  if(isLocalOnlyId(indoorId)){
+    showToast('Ta jednostka jeszcze się nie zsynchronizowała — spróbuj ponownie za chwilę', true);
+    return;
+  }
+  try{
+    const res = await apiPost({action:'update_urzadzenie', id: indoorId, parujZId: outdoorId || ''});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('zapisano przypisanie');
+  }catch(err){
+    showToast('Nie udało się zapisać przypisania: ' + err.message, true);
+  }
+}
 
 // ============ API ============
 async function apiGet(params){
@@ -868,6 +959,46 @@ function bindListaTab(root){
   const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllUnsynced);
 }
 
+function renderParyTabInner(){
+  let html = '<p style="font-size:11.5px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5">' +
+    'Przypisz, które jednostki wewnętrzne obsługuje każdy agregat. Rób to w dowolnej chwili — np. dopiero po tym, jak wejdziesz na dach.</p>';
+
+  const outs = outdoorUnits();
+  if(!outs.length){
+    html += '<div class="empty">Brak jeszcze jednostki zewnętrznej na liście — dodaj ją w zakładce "Dodaj".</div>';
+  } else {
+    outs.forEach(o => {
+      const kids = childrenOf(o.id);
+      html += '<div class="paircard"><div class="pairhead"><span class="dot"></span><div class="pairname">' +
+        esc(devShortLabel(o)) + (o.system ? ' <span class="tag out">' + esc(o.system) + '</span>' : '') + '</div></div>';
+      if(!kids.length){
+        html += '<div class="pairempty">brak przypisanych jednostek wewnętrznych</div>';
+      } else {
+        kids.forEach(k => {
+          html += '<div class="pairchild"><span class="pcname">' + esc(devShortLabel(k)) + '</span>' +
+            '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button></div>';
+        });
+      }
+      html += '</div>';
+    });
+  }
+
+  const unassigned = unassignedIndoor();
+  html += '<div class="sectionlbl" style="margin-top:18px">Nieprzypisane wewnętrzne (' + unassigned.length + ')</div>';
+  if(!unassigned.length){
+    html += '<div class="empty">Wszystkie przypisane.</div>';
+  } else {
+    unassigned.forEach(u => {
+      html += '<div class="pairchild unassigned"><span class="pcname">' + esc(devShortLabel(u)) + '</span>' +
+        '<button type="button" class="pcbtn" data-id="' + esc(u.id) + '">🔗 Przypisz</button></div>';
+    });
+  }
+  return html;
+}
+function bindParyTab(root){
+  root.querySelectorAll('.pcbtn').forEach(b => b.addEventListener('click', () => openPairModal(b.dataset.id)));
+}
+
 function renderDodajTabInner(){
   let html = '';
   const previewSrc = formPhoto ? formPhoto.previewDataUrl : (formExistingPhotoUrl || '');
@@ -984,15 +1115,16 @@ function renderWorkspaceScreen(){
     html += '<div class="hsub">Zakończono ' + esc(fmtDate(w.dataZakonczenia)) + ' · tylko podgląd</div>';
   } else {
     html += '<div class="worktabs">' +
-      '<button class="tabDodaj ' + (state.workTab==='dodaj'?'on':'') + '">' + (editingId ? 'Edytuj urządzenie' : 'Dodaj urządzenie') + '</button>' +
+      '<button class="tabDodaj ' + (state.workTab==='dodaj'?'on':'') + '">' + (editingId ? 'Edytuj' : 'Dodaj') + '</button>' +
       '<button class="tabLista ' + (state.workTab==='lista'?'on':'') + '">Lista <span class="cbadge">' + state.urzadzenia.length + '</span></button>' +
+      '<button class="tabPary ' + (state.workTab==='pary'?'on':'') + '">Pary</button>' +
     '</div>';
   }
   html += '</header>';
 
   const activeTab = state.readonly ? 'lista' : state.workTab;
   html += '<main class="app ' + (activeTab==='lista' ? 'haswb' : '') + '">';
-  html += activeTab==='dodaj' ? renderDodajTabInner() : renderListaTabInner();
+  html += activeTab==='dodaj' ? renderDodajTabInner() : (activeTab==='pary' ? renderParyTabInner() : renderListaTabInner());
   html += '</main>';
 
   if(activeTab==='lista'){
@@ -1008,9 +1140,12 @@ function bindWorkspaceScreen(root){
   const exitBtn = root.querySelector('#btnExit'); if(exitBtn) exitBtn.addEventListener('click', exitWorkspace);
   const t1 = root.querySelector('.tabDodaj'); if(t1) t1.addEventListener('click', () => { state.workTab='dodaj'; render(); });
   const t2 = root.querySelector('.tabLista'); if(t2) t2.addEventListener('click', () => { state.workTab='lista'; render(); });
+  const t3 = root.querySelector('.tabPary'); if(t3) t3.addEventListener('click', () => { state.workTab='pary'; render(); });
 
   const activeTab = state.readonly ? 'lista' : state.workTab;
-  if(activeTab==='dodaj') bindDodajTab(root); else bindListaTab(root);
+  if(activeTab==='dodaj') bindDodajTab(root);
+  else if(activeTab==='pary') bindParyTab(root);
+  else bindListaTab(root);
 
   const dl = root.querySelector('#btnDownload'); if(dl) dl.addEventListener('click', downloadExcel);
   const sh = root.querySelector('#btnShare'); if(sh) sh.addEventListener('click', shareExcel);
