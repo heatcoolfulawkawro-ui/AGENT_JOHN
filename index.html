@@ -194,6 +194,15 @@
   </div>
 </div>
 
+<div class="lightbox" id="treeExportModal">
+  <button class="lbclose" id="treeExportClose" type="button">✕</button>
+  <img id="treeImg" src="" alt="" style="background:#fff;border-radius:8px;">
+  <div style="display:flex;gap:8px;margin-top:14px;width:100%;max-width:320px">
+    <button type="button" id="treeDownloadBtn" class="ghostbtn" style="margin-top:0;flex:1">⬇ Pobierz</button>
+    <button type="button" id="treeShareBtn" class="ghostbtn" style="margin-top:0;flex:1;color:var(--amber);border-color:#4a3a1c">↗ Udostępnij</button>
+  </div>
+</div>
+
 <script>
 // ============ KONFIGURACJA ============
 // Paweł: podmień poniższy URL na ten z Twojego wdrożenia Apps Script (kończy się na /exec).
@@ -286,6 +295,7 @@ function devShortLabel(u){
   if(u.lokalizacja) parts.push(u.lokalizacja);
   const t = [u.producent, u.model].filter(Boolean).join(' ');
   if(t) parts.push(t);
+  if(u.sn) parts.push('SN ' + u.sn);
   return parts.length ? parts.join(' · ') : '(bez nazwy)';
 }
 function outdoorUnits(){ return state.urzadzenia.filter(u => isZewTyp(u.typ)); }
@@ -745,6 +755,210 @@ async function shareExcel(){
   }
 }
 
+// ============ DRZEWKO PRZYPISAŃ — EKSPORT DO GRAFIKI ============
+function drawRoundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+function wrapText(ctx, text, maxWidth){
+  const words = String(text).split(' ');
+  const lines = [];
+  let cur = '';
+  words.forEach(word => {
+    const test = cur ? cur + ' ' + word : word;
+    if(cur && ctx.measureText(test).width > maxWidth){
+      lines.push(cur);
+      cur = word;
+    } else {
+      cur = test;
+    }
+  });
+  if(cur) lines.push(cur);
+  return lines;
+}
+const TREE_FONT_BOLD = '600 13px Arial, sans-serif';
+const TREE_FONT_NORMAL = '12px Arial, sans-serif';
+function treeNodeLines(ctx, u, isOut, maxTextWidth){
+  const rows = [];
+  if(isOut){
+    rows.push({ text: [u.producent, u.model].filter(Boolean).join(' ') || '(bez nazwy)', bold:true });
+    if(u.system) rows.push({ text: 'System ' + u.system, bold:false });
+  } else {
+    rows.push({ text: u.lokalizacja || '(bez lokalizacji)', bold:true });
+    const pm = [u.producent, u.model].filter(Boolean).join(' ');
+    if(pm) rows.push({ text: pm, bold:false });
+  }
+  if(u.sn) rows.push({ text: 'SN ' + u.sn, bold:false });
+  const out = [];
+  rows.forEach(r => {
+    ctx.font = r.bold ? TREE_FONT_BOLD : TREE_FONT_NORMAL;
+    wrapText(ctx, r.text, maxTextWidth).forEach(line => out.push({ text: line, bold: r.bold }));
+  });
+  return out;
+}
+function drawTreeNode(ctx, x, y, w, h, lines, isOut){
+  ctx.fillStyle = isOut ? '#fdeed2' : '#e4eefc';
+  ctx.strokeStyle = isOut ? '#c98a2b' : '#3f74b8';
+  ctx.lineWidth = 1.5;
+  drawRoundRect(ctx, x, y, w, h, 9);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#1a1f24';
+  ctx.textBaseline = 'top';
+  const pad = 10, lineH = 17;
+  let ty = y + (h - lines.length*lineH)/2 + 2;
+  lines.forEach(l => {
+    ctx.font = l.bold ? TREE_FONT_BOLD : TREE_FONT_NORMAL;
+    ctx.fillText(l.text, x + pad, ty);
+    ty += lineH;
+  });
+}
+function buildTreeCanvas(){
+  const outs = outdoorUnits();
+  const unassigned = unassignedIndoor();
+  if(!outs.length && !unassigned.length) return null;
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const MARGIN = 24, NODE_W_OUT = 230, NODE_W_IN = 210, BRANCH_X = 54;
+  const PAD = 10, LINE_H = 17, GAP_Y = 12, GAP_GROUP = 26, TITLE_H = 34;
+
+  const groups = outs.map(o => {
+    const outLines = treeNodeLines(ctx, o, true, NODE_W_OUT - PAD*2);
+    const kids = childrenOf(o.id).map(k => ({ u:k, lines: treeNodeLines(ctx, k, false, NODE_W_IN - PAD*2) }));
+    const outH = Math.max(PAD*2 + outLines.length*LINE_H, 40);
+    const kidHs = kids.map(k => Math.max(PAD*2 + k.lines.length*LINE_H, 40));
+    const kidsTotalH = kids.length ? kidHs.reduce((a,b)=>a+b,0) + GAP_Y*(kids.length-1) : 0;
+    const groupH = Math.max(outH, kidsTotalH || outH);
+    return { o, outLines, kids, outH, kidHs, groupH };
+  });
+
+  const unassignedItems = unassigned.map(u => ({ u, lines: treeNodeLines(ctx, u, false, NODE_W_IN - PAD*2) }));
+  const unassignedHs = unassignedItems.map(x => Math.max(PAD*2 + x.lines.length*LINE_H, 40));
+  const unassignedTotalH = unassignedItems.length
+    ? (24 + unassignedHs.reduce((a,b)=>a+b,0) + GAP_Y*Math.max(0, unassignedItems.length-1))
+    : 0;
+
+  let contentH = TITLE_H;
+  groups.forEach(g => { contentH += g.groupH + GAP_GROUP; });
+  contentH += unassignedTotalH;
+
+  const width = MARGIN*2 + NODE_W_OUT + BRANCH_X + NODE_W_IN;
+  const height = MARGIN*2 + contentH;
+
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(width*DPR);
+  canvas.height = Math.round(height*DPR);
+  ctx.scale(DPR, DPR);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  const w = state.currentWizyta || {};
+  ctx.fillStyle = '#1a1f24';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '700 15px Arial, sans-serif';
+  ctx.fillText([w.klient, w.obiekt].filter(Boolean).join(' — '), MARGIN, MARGIN + 14);
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px Arial, sans-serif';
+  ctx.fillText('Przypisanie jednostek — ' + fmtDate(w.dataUtworzenia), MARGIN, MARGIN + 30);
+
+  let y = MARGIN + TITLE_H;
+  const xOut = MARGIN;
+  const xIn = MARGIN + NODE_W_OUT + BRANCH_X;
+
+  groups.forEach(g => {
+    const outY = y + (g.groupH - g.outH)/2;
+    drawTreeNode(ctx, xOut, outY, NODE_W_OUT, g.outH, g.outLines, true);
+
+    if(g.kids.length){
+      const kidsTotalH = g.kidHs.reduce((a,b)=>a+b,0) + GAP_Y*(g.kids.length-1);
+      let kidY = y + (g.groupH - kidsTotalH)/2;
+      const fromX = xOut + NODE_W_OUT;
+      const fromY = outY + g.outH/2;
+      g.kids.forEach((k, idx) => {
+        const kh = g.kidHs[idx];
+        drawTreeNode(ctx, xIn, kidY, NODE_W_IN, kh, k.lines, false);
+        const toY = kidY + kh/2;
+        ctx.strokeStyle = '#9aa1a8';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.bezierCurveTo(fromX + BRANCH_X*0.6, fromY, xIn - BRANCH_X*0.6, toY, xIn, toY);
+        ctx.stroke();
+        kidY += kh + GAP_Y;
+      });
+    } else {
+      ctx.fillStyle = '#9aa1a8';
+      ctx.font = '11px Arial, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('brak przypisanych', xIn, outY + g.outH/2);
+      ctx.textBaseline = 'alphabetic';
+    }
+    y += g.groupH + GAP_GROUP;
+  });
+
+  if(unassignedItems.length){
+    ctx.fillStyle = '#1a1f24';
+    ctx.font = '700 12px Arial, sans-serif';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Nieprzypisane', xOut, y + 14);
+    y += 24;
+    unassignedItems.forEach((x, idx) => {
+      const h = unassignedHs[idx];
+      drawTreeNode(ctx, xOut, y, NODE_W_IN, h, x.lines, false);
+      y += h + GAP_Y;
+    });
+  }
+
+  return canvas;
+}
+function treeFileName(){
+  const w = state.currentWizyta || {};
+  return sanitizeFileName(w.klient) + '_' + sanitizeFileName(w.obiekt) + '_drzewko.png';
+}
+function openTreeExportModal(){
+  const canvas = buildTreeCanvas();
+  if(!canvas){ showToast('Brak urządzeń zewnętrznych/wewnętrznych do zbudowania grafiki', true); return; }
+  const dataUrl = canvas.toDataURL('image/png');
+  document.getElementById('treeImg').src = dataUrl;
+  document.getElementById('treeExportModal').dataset.dataurl = dataUrl;
+  document.getElementById('treeExportModal').classList.add('show');
+}
+function closeTreeExportModal(){
+  document.getElementById('treeExportModal').classList.remove('show');
+}
+function downloadTreeImage(){
+  const dataUrl = document.getElementById('treeExportModal').dataset.dataurl;
+  if(!dataUrl) return;
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = treeFileName();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+async function shareTreeImage(){
+  const dataUrl = document.getElementById('treeExportModal').dataset.dataurl;
+  if(!dataUrl) return;
+  const blob = await (await fetch(dataUrl)).blob();
+  const file = new File([blob], treeFileName(), { type:'image/png' });
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({ files:[file], title: treeFileName() }); }
+    catch(err){ if(err.name !== 'AbortError') showToast('Nie udało się udostępnić: ' + err.message, true); }
+  } else {
+    showToast('Ta przeglądarka nie obsługuje udostępniania plików — pobieram zamiast tego', true);
+    downloadTreeImage();
+  }
+}
+document.getElementById('treeExportClose').addEventListener('click', closeTreeExportModal);
+document.getElementById('treeExportModal').addEventListener('click', (e) => {
+  if(e.target.id === 'treeExportModal') closeTreeExportModal();
+});
+document.getElementById('treeDownloadBtn').addEventListener('click', downloadTreeImage);
+document.getElementById('treeShareBtn').addEventListener('click', shareTreeImage);
+
 // ============ RENDEROWANIE ============
 function renderTabbar(active){
   return '<div class="tabbar">' +
@@ -960,12 +1174,20 @@ function bindListaTab(root){
 }
 
 function renderParyTabInner(){
-  let html = '<p style="font-size:11.5px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5">' +
-    'Przypisz, które jednostki wewnętrzne obsługuje każdy agregat. Rób to w dowolnej chwili — np. dopiero po tym, jak wejdziesz na dach.</p>';
+  let html = '';
+  if(!state.readonly){
+    html += '<p style="font-size:11.5px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5">' +
+      'Przypisz, które jednostki wewnętrzne obsługuje każdy agregat. Rób to w dowolnej chwili — np. dopiero po tym, jak wejdziesz na dach.</p>';
+  }
 
   const outs = outdoorUnits();
+  const unassigned = unassignedIndoor();
+  if(outs.length || unassigned.length){
+    html += '<button type="button" class="ghostbtn" id="btnExportTree" style="margin-bottom:16px">📊 Eksportuj drzewko jako grafikę</button>';
+  }
+
   if(!outs.length){
-    html += '<div class="empty">Brak jeszcze jednostki zewnętrznej na liście — dodaj ją w zakładce "Dodaj".</div>';
+    html += '<div class="empty">Brak jeszcze jednostki zewnętrznej na liście' + (state.readonly ? '.' : ' — dodaj ją w zakładce "Dodaj".') + '</div>';
   } else {
     outs.forEach(o => {
       const kids = childrenOf(o.id);
@@ -975,28 +1197,30 @@ function renderParyTabInner(){
         html += '<div class="pairempty">brak przypisanych jednostek wewnętrznych</div>';
       } else {
         kids.forEach(k => {
-          html += '<div class="pairchild"><span class="pcname">' + esc(devShortLabel(k)) + '</span>' +
-            '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button></div>';
+          html += '<div class="pairchild"><span class="pcname">' + esc(devShortLabel(k)) + '</span>';
+          if(!state.readonly) html += '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button>';
+          html += '</div>';
         });
       }
       html += '</div>';
     });
   }
 
-  const unassigned = unassignedIndoor();
   html += '<div class="sectionlbl" style="margin-top:18px">Nieprzypisane wewnętrzne (' + unassigned.length + ')</div>';
   if(!unassigned.length){
     html += '<div class="empty">Wszystkie przypisane.</div>';
   } else {
     unassigned.forEach(u => {
-      html += '<div class="pairchild unassigned"><span class="pcname">' + esc(devShortLabel(u)) + '</span>' +
-        '<button type="button" class="pcbtn" data-id="' + esc(u.id) + '">🔗 Przypisz</button></div>';
+      html += '<div class="pairchild unassigned"><span class="pcname">' + esc(devShortLabel(u)) + '</span>';
+      if(!state.readonly) html += '<button type="button" class="pcbtn" data-id="' + esc(u.id) + '">🔗 Przypisz</button>';
+      html += '</div>';
     });
   }
   return html;
 }
 function bindParyTab(root){
   root.querySelectorAll('.pcbtn').forEach(b => b.addEventListener('click', () => openPairModal(b.dataset.id)));
+  const exportBtn = root.querySelector('#btnExportTree'); if(exportBtn) exportBtn.addEventListener('click', openTreeExportModal);
 }
 
 function renderDodajTabInner(){
@@ -1113,6 +1337,10 @@ function renderWorkspaceScreen(){
   '</div>';
   if(state.readonly){
     html += '<div class="hsub">Zakończono ' + esc(fmtDate(w.dataZakonczenia)) + ' · tylko podgląd</div>';
+    html += '<div class="worktabs">' +
+      '<button class="tabLista ' + (state.workTab==='lista'?'on':'') + '">Lista <span class="cbadge">' + state.urzadzenia.length + '</span></button>' +
+      '<button class="tabPary ' + (state.workTab==='pary'?'on':'') + '">Pary</button>' +
+    '</div>';
   } else {
     html += '<div class="worktabs">' +
       '<button class="tabDodaj ' + (state.workTab==='dodaj'?'on':'') + '">' + (editingId ? 'Edytuj' : 'Dodaj') + '</button>' +
@@ -1122,7 +1350,7 @@ function renderWorkspaceScreen(){
   }
   html += '</header>';
 
-  const activeTab = state.readonly ? 'lista' : state.workTab;
+  const activeTab = state.workTab;
   html += '<main class="app ' + (activeTab==='lista' ? 'haswb' : '') + '">';
   html += activeTab==='dodaj' ? renderDodajTabInner() : (activeTab==='pary' ? renderParyTabInner() : renderListaTabInner());
   html += '</main>';
@@ -1142,7 +1370,7 @@ function bindWorkspaceScreen(root){
   const t2 = root.querySelector('.tabLista'); if(t2) t2.addEventListener('click', () => { state.workTab='lista'; render(); });
   const t3 = root.querySelector('.tabPary'); if(t3) t3.addEventListener('click', () => { state.workTab='pary'; render(); });
 
-  const activeTab = state.readonly ? 'lista' : state.workTab;
+  const activeTab = state.workTab;
   if(activeTab==='dodaj') bindDodajTab(root);
   else if(activeTab==='pary') bindParyTab(root);
   else bindListaTab(root);
