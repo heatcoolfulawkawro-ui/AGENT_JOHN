@@ -1606,6 +1606,7 @@ function renderWorkspaceScreen(){
   if(activeTab==='lista'){
     html += '<div class="bottombar">';
     if(!state.readonly) html += '<button class="secondary" id="btnGotoAdd">+ Dodaj</button>';
+    else html += '<button class="secondary" id="btnReopen">🔓<span>Wznów</span></button>';
     html += '<button class="dl" id="btnDownload">⬇<span>Pobierz</span></button>';
     html += '<button class="share" id="btnShare">↗<span>Udostępnij</span></button>';
     html += '</div>';
@@ -1626,6 +1627,24 @@ function bindWorkspaceScreen(root){
   const dl = root.querySelector('#btnDownload'); if(dl) dl.addEventListener('click', downloadExcel);
   const sh = root.querySelector('#btnShare'); if(sh) sh.addEventListener('click', shareExcel);
   const addBtn = root.querySelector('#btnGotoAdd'); if(addBtn) addBtn.addEventListener('click', () => { state.workTab='dodaj'; render(); });
+  const reopenBtn = root.querySelector('#btnReopen'); if(reopenBtn) reopenBtn.addEventListener('click', reopenCurrentWizyta);
+}
+
+async function reopenCurrentWizyta(){
+  const w = state.currentWizyta;
+  if(!confirm('Wznowić edycję protokołu „' + w.klient + ' — ' + w.obiekt + '"?\nWróci do "Wizyty w toku" — będziesz mógł go znów edytować i zakończyć ponownie, gdy skończysz poprawki.')) return;
+  try{
+    const res = await apiPost({action:'reopen_wizyta', id: w.id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('Wznowiono do edycji');
+    state.readonly = false;
+    state.currentWizyta = Object.assign({}, w, { status:'w_toku', dataZakonczenia:'' });
+    state.workTab = 'lista';
+    persistLocalUrzadzenia();
+    render();
+  }catch(err){
+    showToast('Nie udało się wznowić: ' + err.message, true);
+  }
 }
 
 function render(){

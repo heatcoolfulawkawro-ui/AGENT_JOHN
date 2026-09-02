@@ -11,6 +11,7 @@
  *  GET  ?action=get_wizyta&id=XXX                       (wizyta + jej urządzenia)
  *  POST {action:'create_wizyta', klient, obiekt}
  *  POST {action:'finish_wizyta', id}
+ *  POST {action:'reopen_wizyta', id}   (cofa zakończenie protokołu z powrotem do w_toku)
  *  POST {action:'delete_wizyta', id}
  *  POST {action:'analyze_photo', imageBase64, mimeType}
  *  POST {action:'add_urzadzenie', wizytaId, producent, model, sn, typ, system, lokalizacja, uwagi,
@@ -140,6 +141,22 @@ function finishWizyta(id) {
     if (String(rows[i][0]) === String(id)) {
       sheet.getRange(i + 1, 4).setValue('zakonczona');
       sheet.getRange(i + 1, 7).setValue(nowStr());
+      return true;
+    }
+  }
+  throw new Error('Nie znaleziono wizyty');
+}
+
+// Cofnięcie zakończenia — na pomyłki przy klikaniu, albo gdy trzeba coś
+// jeszcze doprawić już po zamknięciu protokołu. Czyści datę zakończenia,
+// żeby nie zostawała nieaktualna do czasu ponownego "Zakończ".
+function reopenWizyta(id) {
+  const sheet = getWizytySheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(id)) {
+      sheet.getRange(i + 1, 4).setValue('w_toku');
+      sheet.getRange(i + 1, 7).setValue('');
       return true;
     }
   }
@@ -476,6 +493,7 @@ function doPost(e) {
     const action = body.action;
     if (action === 'create_wizyta') return jsonOut({ ok: true, data: createWizyta(body.klient, body.obiekt) });
     if (action === 'finish_wizyta') return jsonOut({ ok: true, done: finishWizyta(body.id) });
+    if (action === 'reopen_wizyta') return jsonOut({ ok: true, done: reopenWizyta(body.id) });
     if (action === 'delete_wizyta') return jsonOut({ ok: true, deleted: deleteWizyta(body.id) });
     if (action === 'analyze_photo') return jsonOut({ ok: true, data: analyzePhoto(body.imageBase64, body.mimeType) });
     if (action === 'add_urzadzenie') return jsonOut({ ok: true, data: addUrzadzenie(body) });
