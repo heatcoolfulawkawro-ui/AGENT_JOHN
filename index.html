@@ -162,6 +162,14 @@
   .extrapending{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); color:var(--amber); font-size:16px; }
   .extraadd{ width:64px; height:64px; border-radius:7px; background:none; border:1px dashed var(--line); color:var(--ink-dim); font-size:22px; font-family:inherit; cursor:pointer; }
 
+  .co2live{ margin-bottom:4px; }
+  .co2info{ font-size:11.5px; color:var(--ink); background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:9px 11px; line-height:1.6; margin-top:6px; }
+  .co2dim{ color:var(--ink-dim); }
+  .co2warn{ color:var(--amber); }
+  .cro-yes{ color:var(--red); font-weight:700; }
+  .cro-no{ color:var(--green); font-weight:700; }
+  .co2hint{ font-size:10.5px; color:var(--ink-dim); line-height:1.5; margin:6px 0 14px; }
+
   .paircard{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 13px; margin-bottom:10px; }
   .pairhead{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
   .pairhead .dot{ width:8px; height:8px; border-radius:50%; background:var(--blue); flex-shrink:0; }
@@ -240,6 +248,61 @@ function typLabel(t){
 }
 function isZewTyp(t){ return t==='zewnetrzna' || /_zew$/.test(t||''); }
 function usesSystemTag(t){ return /^(multi|vrf)_/.test(t||''); }
+
+// ============ CZYNNIK CHŁODNICZY: GWP / CO2e / próg CRO ============
+// Wartości GWP wg IPCC AR4 (100-letni horyzont) — to jest podstawa prawna
+// używana w Rozporządzeniu UE 2024/573 (Załącznik I) do liczenia ekwiwalentu
+// CO2, NIE nowsze wartości AR5/AR6 które krążą w internecie. Jeśli brakuje
+// czynnika którego używacie, dopisz go tutaj (sam wpis w tabeli poniżej
+// wystarczy, reszta appki obsłuży go automatycznie).
+const GWP_TABLE = {
+  'R32': 675, 'R410A': 2088, 'R404A': 3922, 'R407A': 2107, 'R407C': 1774,
+  'R407F': 1824, 'R134A': 1430, 'R290': 3, 'R454B': 466, 'R448A': 1387,
+  'R449A': 1397, 'R507A': 3985, 'R422D': 2729, 'R1234YF': 4, 'R1234ZE': 7
+};
+// Próg rejestracji w Centralnym Rejestrze Operatorów (Rozp. UE 2024/573 +
+// Ustawa o f-gazach): 5 t CO2e dla urządzeń NIEhermetycznych (czyli m.in.
+// split/multi/VRF z instalacją łączoną w terenie — to jest zdecydowana
+// większość tego, co ten program obsługuje), 10 t CO2e dla urządzeń
+// fabrycznie hermetycznie zamkniętych. Appka zakłada niehermetyczne — jeśli
+// trafi się faktycznie hermetyczne urządzenie, to ocena progu wymaga
+// Twojej weryfikacji, appka tego automatycznie nie rozpozna.
+const CRO_PROG_TCO2E = 5;
+
+function normalizeCzynnik(s){ return String(s||'').trim().toUpperCase().replace(/[\s-]+/g,''); }
+function gwpFor(czynnik){
+  const key = normalizeCzynnik(czynnik);
+  return Object.prototype.hasOwnProperty.call(GWP_TABLE, key) ? GWP_TABLE[key] : null;
+}
+function czynnikSumaKg(u){
+  const fab = parseFloat(u.czynnikFabryczny);
+  const dod = parseFloat(u.czynnikDodatkowy);
+  const fabOk = !isNaN(fab) ? fab : 0;
+  const dodOk = !isNaN(dod) ? dod : 0;
+  return fabOk + dodOk;
+}
+function co2eqInfo(u){
+  const suma = czynnikSumaKg(u);
+  if(!suma || !u.czynnik) return null;
+  const gwp = gwpFor(u.czynnik);
+  const dodBrak = isNaN(parseFloat(u.czynnikDodatkowy));
+  if(gwp == null) return { suma, dodBrak, gwp:null, tco2e:null, cro:null };
+  const tco2e = suma * gwp / 1000;
+  return { suma, dodBrak, gwp, tco2e, cro: tco2e >= CRO_PROG_TCO2E };
+}
+function co2eqBadgeHtml(u){
+  const info = co2eqInfo(u);
+  if(!info) return '';
+  const kgTxt = String(parseFloat(info.suma.toFixed(2))) + ' kg';
+  const dodNote = info.dodBrak ? ' <span class="co2dim">(bez ilości dodatkowej)</span>' : '';
+  if(info.gwp == null){
+    return '<div class="co2info"><span class="co2warn">⚠ "' + esc(u.czynnik) + '" — nieznane GWP, dopisz czynnik w kodzie appki. Suma: ' + kgTxt + dodNote + '</span></div>';
+  }
+  const croClass = info.cro ? 'cro-yes' : 'cro-no';
+  const croTxt = info.cro ? 'W CRO' : 'Poza CRO';
+  return '<div class="co2info">' + esc(normalizeCzynnik(u.czynnik)) + ' · ' + kgTxt + dodNote +
+    ' · ' + info.tco2e.toFixed(2) + ' t CO₂-eq · <span class="' + croClass + '">' + croTxt + '</span></div>';
+}
 function pad2(n){ return ('0'+n).slice(-2); }
 function fmtDate(iso){
   if(!iso) return '';
@@ -421,7 +484,7 @@ function resetForm(){
   analyzing = false;
   analyzeError = '';
   editingExtraPhotos = [];
-  state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'', system:'' };
+  state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'', system:'', czynnik:'', czynnikFabryczny:'', czynnikDodatkowy:'' };
 }
 
 // ============ ZDJĘCIE: wczytanie + zmniejszenie ============
@@ -670,6 +733,9 @@ async function submitForm(){
   const lokalizacja = val('inpLokalizacja').trim();
   const uwagi = val('inpUwagi').trim();
   const system = val('inpSystem').trim();
+  const czynnik = val('inpCzynnik').trim();
+  const czynnikFabryczny = val('inpCzynnikFab').trim();
+  const czynnikDodatkowy = val('inpCzynnikDod').trim();
   const errEl = document.getElementById('formErr');
 
   if(!lokalizacja){
@@ -678,7 +744,7 @@ async function submitForm(){
   }
   if(errEl) errEl.style.display = 'none';
 
-  const payload = { wizytaId: state.currentWizyta.id, producent, model, sn, typ: formTyp, system, lokalizacja, uwagi };
+  const payload = { wizytaId: state.currentWizyta.id, producent, model, sn, typ: formTyp, system, lokalizacja, uwagi, czynnik, czynnikFabryczny, czynnikDodatkowy };
   if(formPhoto){ payload.imageBase64 = formPhoto.base64; payload.mimeType = formPhoto.mimeType; }
   // Tylko nowo wybrane zdjęcie ma sens jako _localPreview (surowy data: URL, renderowalny
   // w <img>). formExistingPhotoUrl bywa linkiem do strony podglądu Drive — nieużywalnym
@@ -728,7 +794,8 @@ function startEdit(id){
   formAiFilled = false;
   analyzeError = '';
   editingExtraPhotos = (u.zdjeciaDodatkowe || []).slice();
-  state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
+  state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'',
+    czynnik: u.czynnik||'', czynnikFabryczny: u.czynnikFabryczny||'', czynnikDodatkowy: u.czynnikDodatkowy||'' };
   state.workTab = 'dodaj';
   render();
 }
@@ -743,7 +810,8 @@ function duplicateEntry(id){
   formAiFilled = false;
   analyzeError = '';
   editingExtraPhotos = [];
-  state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
+  state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'',
+    czynnik: u.czynnik||'', czynnikFabryczny: u.czynnikFabryczny||'', czynnikDodatkowy:'' };
   state.workTab = 'dodaj';
   render();
   showToast('skopiowano — zeskanuj nową tabliczkę albo popraw dane');
@@ -818,13 +886,21 @@ function buildWorkbook(){
     ['Obiekt', w.obiekt || ''],
     ['Data', fmtDate(w.dataUtworzenia)],
     [],
-    ['Lp', 'Lokalizacja', 'Typ', 'Producent', 'Model', 'SN', 'Uwagi']
+    ['Lp', 'Lokalizacja', 'Typ', 'Producent', 'Model', 'SN', 'Czynnik', 'Suma czynnika (kg)', 't CO₂-eq', 'CRO', 'Uwagi']
   ];
   state.urzadzenia.forEach((u, i) => {
-    rows.push([i + 1, u.lokalizacja || '', typLabel(u.typ), u.producent || '', u.model || '', u.sn || '', u.uwagi || '']);
+    const info = isZewTyp(u.typ) ? co2eqInfo(u) : null;
+    rows.push([
+      i + 1, u.lokalizacja || '', typLabel(u.typ), u.producent || '', u.model || '', u.sn || '',
+      info ? normalizeCzynnik(u.czynnik) : '',
+      info ? parseFloat(info.suma.toFixed(2)) : '',
+      (info && info.tco2e != null) ? parseFloat(info.tco2e.toFixed(2)) : '',
+      (info && info.cro != null) ? (info.cro ? 'W CRO' : 'Poza CRO') : '',
+      u.uwagi || ''
+    ]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:4},{wch:16},{wch:12},{wch:14},{wch:16},{wch:16},{wch:34}];
+  ws['!cols'] = [{wch:4},{wch:16},{wch:12},{wch:14},{wch:16},{wch:16},{wch:10},{wch:12},{wch:10},{wch:10},{wch:34}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Urządzenia');
   return wb;
@@ -882,6 +958,10 @@ function treeNodeLines(ctx, u, isOut, maxTextWidth){
   if(isOut){
     rows.push({ text: [u.producent, u.model].filter(Boolean).join(' ') || '(bez nazwy)', bold:true });
     if(u.system) rows.push({ text: 'System ' + u.system, bold:false });
+    const info = co2eqInfo(u);
+    if(info && info.tco2e != null){
+      rows.push({ text: normalizeCzynnik(u.czynnik) + ' ' + parseFloat(info.suma.toFixed(2)) + ' kg · ' + info.tco2e.toFixed(2) + ' tCO₂e · ' + (info.cro ? 'W CRO' : 'Poza CRO'), bold:false });
+    }
   } else {
     rows.push({ text: u.lokalizacja || '(bez lokalizacji)', bold:true });
     const pm = [u.producent, u.model].filter(Boolean).join(' ');
@@ -1223,6 +1303,7 @@ function renderDevCard(u, idx, total){
     : '<div class="thumb">' + thumbHtml + '</div>';
   html += '<div class="body"><div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
   if(u.typ) html += '<span class="' + tagClass + '">' + esc(typLabel(u.typ)) + '</span>';
+  if(isZewTyp(u.typ)) html += co2eqBadgeHtml(u);
   html += '</div>';
   if(!state.readonly){
     html += '<div class="acts">' +
@@ -1291,7 +1372,8 @@ function renderParyTabInner(){
     outs.forEach(o => {
       const kids = childrenOf(o.id);
       html += '<div class="paircard"><div class="pairhead"><span class="dot"></span><div class="pairname">' +
-        esc(devShortLabel(o)) + (o.system ? ' <span class="tag out">' + esc(o.system) + '</span>' : '') + '</div></div>';
+        esc(devShortLabel(o)) + (o.system ? ' <span class="tag out">' + esc(o.system) + '</span>' : '') + '</div></div>' +
+        co2eqBadgeHtml(o);
       if(!kids.length){
         html += '<div class="pairempty">brak przypisanych jednostek wewnętrznych</div>';
       } else {
@@ -1371,6 +1453,9 @@ function renderDodajTabInner(){
   if(usesSystemTag(formTyp)){
     html += '<div class="field" id="systemFieldWrap"><label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '"></div>';
   }
+  if(isZewTyp(formTyp)){
+    html += refrigFieldsGroupHtml();
+  }
 
   html += '<div class="field" style="margin-top:12px"><label>Lokalizacja</label><input id="inpLokalizacja" placeholder="np. 503" value="' + esc(state.form.lokalizacja) + '"></div>';
   html += '<div class="field"><label>Uwagi (opcjonalnie)</label><textarea id="inpUwagi" placeholder="np. nieszczelność na złączu, do wymiany filtr">' + esc(state.form.uwagi) + '</textarea></div>';
@@ -1407,8 +1492,50 @@ function updateSystemFieldVisibility(root){
   }
 }
 
+function refrigFieldsGroupHtml(){
+  return '<div id="refrigFieldsGroup">' +
+    '<div class="field"><label>Czynnik chłodniczy</label><input id="inpCzynnik" list="czynnikOptions" placeholder="np. R32" value="' + esc(state.form.czynnik||'') + '"></div>' +
+    '<datalist id="czynnikOptions">' + Object.keys(GWP_TABLE).map(k => '<option value="'+k+'">').join('') + '</datalist>' +
+    '<div class="field"><label>Ilość fabryczna (kg)</label><input id="inpCzynnikFab" type="number" step="0.01" min="0" inputmode="decimal" placeholder="np. 0.62" value="' + esc(state.form.czynnikFabryczny||'') + '"></div>' +
+    '<div class="field"><label>Ilość dodatkowa na instalację (kg)</label><input id="inpCzynnikDod" type="number" step="0.01" min="0" inputmode="decimal" placeholder="zostaw puste jeśli nie wiadomo" value="' + esc(state.form.czynnikDodatkowy||'') + '"></div>' +
+    '<div class="co2live" id="co2live"></div>' +
+    '<p class="co2hint">Suma i próg CRO liczone automatycznie. Próg 5 t CO₂-eq dotyczy urządzeń niehermetycznych (Rozp. UE 2024/573) — dla nietypowych przypadków zweryfikuj klasyfikację samodzielnie.</p>' +
+  '</div>';
+}
+function updateCo2Live(root){
+  const el = (root || document).querySelector('#co2live');
+  if(!el) return;
+  const fake = { czynnik: val('inpCzynnik'), czynnikFabryczny: val('inpCzynnikFab'), czynnikDodatkowy: val('inpCzynnikDod') };
+  el.innerHTML = co2eqBadgeHtml(fake) || '<div class="co2info co2dim">wpisz czynnik i ilość, żeby zobaczyć sumę i próg CRO</div>';
+}
+function bindRefrigFields(root){
+  ['inpCzynnik','inpCzynnikFab','inpCzynnikDod'].forEach(id => {
+    const el = root.querySelector('#' + id);
+    if(el) el.addEventListener('input', () => updateCo2Live(root));
+  });
+}
+function updateRefrigFieldsVisibility(root){
+  const existing = root.querySelector('#refrigFieldsGroup');
+  const needed = isZewTyp(formTyp);
+  if(needed && !existing){
+    const wrap = document.createElement('div');
+    wrap.innerHTML = refrigFieldsGroupHtml();
+    const group = wrap.firstElementChild;
+    const anchor = root.querySelector('#systemFieldWrap') || root.querySelector('#typFieldWrap');
+    anchor.insertAdjacentElement('afterend', group);
+    bindRefrigFields(root);
+    updateCo2Live(root);
+  } else if(!needed && existing){
+    existing.remove();
+  }
+}
+
 function bindDodajTab(root){
   root.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
+  if(root.querySelector('#refrigFieldsGroup')){
+    bindRefrigFields(root);
+    updateCo2Live(root);
+  }
   if(editingId){
     const extraInput = root.querySelector('#extraInput');
     if(extraInput) extraInput.addEventListener('change', e => { onExtraPhotoChosen(e.target.files[0]); e.target.value=''; });
@@ -1431,6 +1558,7 @@ function bindDodajTab(root){
       root.querySelectorAll('.typebtn, .typeinne').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
       updateSystemFieldVisibility(root);
+      updateRefrigFieldsVisibility(root);
     });
   });
 
