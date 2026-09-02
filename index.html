@@ -155,6 +155,13 @@
 
   .delvisit{ background:none; border:none; color:var(--red); font-size:15px; cursor:pointer; padding:6px; flex-shrink:0; }
 
+  .extragrid{ display:flex; flex-wrap:wrap; gap:8px; }
+  .extrathumb{ position:relative; width:64px; height:64px; }
+  .extrathumb .thumb{ width:64px; height:64px; }
+  .extradel{ position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:var(--red); border:2px solid var(--bg); color:#fff; font-size:11px; line-height:1; cursor:pointer; padding:0; }
+  .extrapending{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); color:var(--amber); font-size:16px; }
+  .extraadd{ width:64px; height:64px; border-radius:7px; background:none; border:1px dashed var(--line); color:var(--ink-dim); font-size:22px; font-family:inherit; cursor:pointer; }
+
   .paircard{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 13px; margin-bottom:10px; }
   .pairhead{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
   .pairhead .dot{ width:8px; height:8px; border-radius:50%; background:var(--blue); flex-shrink:0; }
@@ -165,6 +172,7 @@
   .pairchild.unassigned{ padding:10px 12px; border-top:none; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:7px; }
   .pcname{ font-size:12.5px; }
   .pcbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--amber); border-radius:7px; padding:6px 10px; font-size:11.5px; font-family:inherit; cursor:pointer; flex-shrink:0; }
+  .pcunlink{ background:none; border:1px solid #4a2c28; color:var(--red); border-radius:7px; width:30px; height:30px; font-size:13px; font-family:inherit; cursor:pointer; flex-shrink:0; }
 
   .pairmodal{ position:fixed; inset:0; background:rgba(6,9,11,.85); z-index:55; display:none; align-items:flex-end; justify-content:center; }
   .pairmodal.show{ display:flex; }
@@ -402,6 +410,7 @@ let formExistingPhotoUrl = null; // zdjęcie już zapisane na serwerze (tryb edy
 let formAiFilled = false;
 let analyzing = false;
 let analyzeError = '';
+let editingExtraPhotos = []; // zdjęcia dodatkowe aktualnie edytowanego urządzenia (bez odczytu AI)
 
 function resetForm(){
   editingId = null;
@@ -411,6 +420,7 @@ function resetForm(){
   formAiFilled = false;
   analyzing = false;
   analyzeError = '';
+  editingExtraPhotos = [];
   state.form = { producent:'', model:'', sn:'', lokalizacja:'', uwagi:'', system:'' };
 }
 
@@ -466,6 +476,88 @@ async function onPhotoChosen(file){
     render();
   }catch(err){
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
+  }
+}
+
+// ============ ZDJĘCIA DODATKOWE (filtry, pompka skroplin, sprężarka itd. — bez odczytu AI) ============
+function extraPhotosGridHtml(){
+  let html = '';
+  editingExtraPhotos.forEach(p => {
+    const thumbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 150) : '');
+    const lbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 1400) : '');
+    html += '<div class="extrathumb">' +
+      '<button type="button" class="thumb lbtrigger" data-lb="' + esc(lbSrc) + '" data-ext="' + esc(p.url || lbSrc) + '">' +
+      (thumbSrc ? '<img src="' + esc(thumbSrc) + '" alt="">' : '📦') +
+      (p._pending ? '<span class="extrapending">…</span>' : '') +
+      '</button>';
+    if(!p._pending) html += '<button type="button" class="extradel" data-id="' + esc(p.id) + '">✕</button>';
+    html += '</div>';
+  });
+  html += '<button type="button" class="extraadd" id="btnAddExtraPhoto">+</button>';
+  return html;
+}
+function syncExtraPhotosToState(){
+  if(!editingId) return;
+  const i = state.urzadzenia.findIndex(u => u.id === editingId);
+  if(i > -1){
+    state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], { zdjeciaDodatkowe: editingExtraPhotos.slice() });
+    persistLocalUrzadzenia();
+  }
+}
+function refreshExtraPhotosGrid(root){
+  const grid = (root || document).querySelector('#extraPhotosGrid');
+  if(!grid) return;
+  grid.innerHTML = extraPhotosGridHtml();
+  grid.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
+  grid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteExtraPhoto(b.dataset.id)));
+  const addBtn = grid.querySelector('#btnAddExtraPhoto');
+  if(addBtn) addBtn.addEventListener('click', () => document.getElementById('extraInput').click());
+}
+async function onExtraPhotoChosen(file){
+  if(!file || !editingId) return;
+  try{
+    const picked = await fileToDownscaledBase64(file);
+    const tempId = 'localphoto_' + Date.now();
+    editingExtraPhotos.push({ id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _pending: true });
+    refreshExtraPhotosGrid();
+    let res;
+    try{
+      res = await apiPost({ action:'add_zdjecie', urzadzenieId: editingId, imageBase64: picked.base64, mimeType: picked.mimeType });
+    }catch(err){
+      res = { ok:false, error: err.message };
+    }
+    const idx = editingExtraPhotos.findIndex(p => p.id === tempId);
+    if(res.ok && idx > -1){
+      editingExtraPhotos[idx] = res.data;
+      showToast('zapisano zdjęcie');
+    } else if(idx > -1){
+      editingExtraPhotos.splice(idx, 1);
+      showToast('Nie udało się zapisać zdjęcia: ' + (res.error || ''), true);
+    }
+    syncExtraPhotosToState();
+    refreshExtraPhotosGrid();
+  }catch(err){
+    showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
+  }
+}
+async function deleteExtraPhoto(id){
+  if(!confirm('Usunąć to zdjęcie?')) return;
+  const idx = editingExtraPhotos.findIndex(p => p.id === id);
+  if(idx < 0) return;
+  const removed = editingExtraPhotos[idx];
+  editingExtraPhotos.splice(idx, 1);
+  syncExtraPhotosToState();
+  refreshExtraPhotosGrid();
+  if(String(id).indexOf('localphoto_') === 0) return; // jeszcze nie zapisane na serwerze
+  try{
+    const res = await apiPost({action:'delete_zdjecie', id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('usunięto zdjęcie');
+  }catch(err){
+    editingExtraPhotos.splice(idx, 0, removed);
+    syncExtraPhotosToState();
+    refreshExtraPhotosGrid();
+    showToast('Nie udało się usunąć: ' + err.message, true);
   }
 }
 
@@ -599,6 +691,11 @@ async function submitForm(){
     entryId = idBeingEdited;
     const i = state.urzadzenia.findIndex(u => u.id === idBeingEdited);
     if(i > -1){
+      // Jawnie dopisujemy bieżące parujZId — samo poleganie na "brak pola w
+      // payloadzie = serwer go nie rusza" raz doprowadziło do zgubienia
+      // parowania przy zwykłej edycji SN. Ta wersja jest odporna niezależnie
+      // od przyczyny tamtego przypadku.
+      payload.parujZId = state.urzadzenia[i].parujZId || '';
       state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], payload, {
         _synced: false, _payload: payload,
         _localPreview: localPreview || state.urzadzenia[i]._localPreview
@@ -630,6 +727,7 @@ function startEdit(id){
   formExistingPhotoUrl = u.zdjecieFileId ? driveThumbUrl(u.zdjecieFileId, 600) : (u._localPreview || null);
   formAiFilled = false;
   analyzeError = '';
+  editingExtraPhotos = (u.zdjeciaDodatkowe || []).slice();
   state.form = { producent: u.producent||'', model: u.model||'', sn: u.sn||'', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
   state.workTab = 'dodaj';
   render();
@@ -644,6 +742,7 @@ function duplicateEntry(id){
   formExistingPhotoUrl = null;
   formAiFilled = false;
   analyzeError = '';
+  editingExtraPhotos = [];
   state.form = { producent: u.producent||'', model: u.model||'', sn: '', lokalizacja: u.lokalizacja||'', uwagi: u.uwagi||'', system: u.system||'' };
   state.workTab = 'dodaj';
   render();
@@ -1198,7 +1297,12 @@ function renderParyTabInner(){
       } else {
         kids.forEach(k => {
           html += '<div class="pairchild"><span class="pcname">' + esc(devShortLabel(k)) + '</span>';
-          if(!state.readonly) html += '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button>';
+          if(!state.readonly){
+            html += '<span style="display:flex;gap:6px;flex-shrink:0">' +
+              '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button>' +
+              '<button type="button" class="pcunlink" data-id="' + esc(k.id) + '" title="Odłącz">✕</button>' +
+            '</span>';
+          }
           html += '</div>';
         });
       }
@@ -1220,6 +1324,9 @@ function renderParyTabInner(){
 }
 function bindParyTab(root){
   root.querySelectorAll('.pcbtn').forEach(b => b.addEventListener('click', () => openPairModal(b.dataset.id)));
+  root.querySelectorAll('.pcunlink').forEach(b => b.addEventListener('click', () => {
+    if(confirm('Odłączyć tę jednostkę od agregatu?')) setParowanie(b.dataset.id, '');
+  }));
   const exportBtn = root.querySelector('#btnExportTree'); if(exportBtn) exportBtn.addEventListener('click', openTreeExportModal);
 }
 
@@ -1268,6 +1375,12 @@ function renderDodajTabInner(){
   html += '<div class="field" style="margin-top:12px"><label>Lokalizacja</label><input id="inpLokalizacja" placeholder="np. 503" value="' + esc(state.form.lokalizacja) + '"></div>';
   html += '<div class="field"><label>Uwagi (opcjonalnie)</label><textarea id="inpUwagi" placeholder="np. nieszczelność na złączu, do wymiany filtr">' + esc(state.form.uwagi) + '</textarea></div>';
 
+  if(editingId){
+    html += '<div class="field"><label>Zdjęcia dodatkowe (filtry, pompka skroplin, sprężarka itd. — zapisują się od razu)</label>' +
+      '<div class="extragrid" id="extraPhotosGrid">' + extraPhotosGridHtml() + '</div></div>' +
+      '<input type="file" id="extraInput" accept="image/*" style="display:none">';
+  }
+
   html += '<div id="formErr" class="err" style="display:none"></div>';
   html += '<button class="bigcta" id="btnSubmitForm">' + (editingId ? '💾 Zapisz zmiany' : '✓ Dodaj do listy') + '</button>';
   if(editingId){
@@ -1296,6 +1409,13 @@ function updateSystemFieldVisibility(root){
 
 function bindDodajTab(root){
   root.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
+  if(editingId){
+    const extraInput = root.querySelector('#extraInput');
+    if(extraInput) extraInput.addEventListener('change', e => { onExtraPhotoChosen(e.target.files[0]); e.target.value=''; });
+    const addExtraBtn = root.querySelector('#btnAddExtraPhoto');
+    if(addExtraBtn) addExtraBtn.addEventListener('click', () => extraInput.click());
+    root.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteExtraPhoto(b.dataset.id)));
+  }
   const cam = root.querySelector('#camInput');
   const gal = root.querySelector('#galInput');
   const btnCam = root.querySelector('#btnCam');

@@ -18,6 +18,8 @@
  *        zewnętrznej, do której przypięta jest wewnętrzna), imageBase64 (opcjonalnie nowe zdjęcie)}
  *  POST {action:'delete_urzadzenie', id}
  *  POST {action:'reorder_urzadzenia', wizytaId, orderedIds:[...]}
+ *  POST {action:'add_zdjecie', urzadzenieId, imageBase64, mimeType}   (zdjęcie dodatkowe, bez odczytu AI)
+ *  POST {action:'delete_zdjecie', id}
  */
 
 // Musi być identyczne z TOKEN w index.html — bariera przed wywołaniem /exec
@@ -158,6 +160,79 @@ function deleteWizyta(id) {
   throw new Error('Nie znaleziono wizyty');
 }
 
+// ============ ZDJĘCIA DODATKOWE (filtry, pompka skroplin, sprężarka itd.) ============
+function getZdjeciaSheet() {
+  const s = getSheet('Zdjecia');
+  if (s.getLastRow() === 0) s.appendRow(['ID', 'UrzadzenieId', 'Url', 'FileId', 'DataUtworzenia']);
+  return s;
+}
+function rowToZdjecie(r) {
+  return { id: r[0], urzadzenieId: r[1], url: r[2], fileId: r[3], dataUtworzenia: r[4] };
+}
+function listZdjeciaByUrzadzenie() {
+  const rows = getZdjeciaSheet().getDataRange().getValues();
+  const byUrz = {};
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i][0]) continue;
+    const uid = rows[i][1];
+    if (!byUrz[uid]) byUrz[uid] = [];
+    byUrz[uid].push(rowToZdjecie(rows[i]));
+  }
+  return byUrz;
+}
+// Ten sam folder co tabliczka (Klient/Obiekt-data) — celowo, żeby wszystkie
+// zdjęcia jednego urządzenia leżały razem. Nazwa pliku dostaje sufiks z
+// godziną, bo w odróżnieniu od tabliczki może być ich wiele na urządzenie.
+function saveZdjecieDodatkowe(wizyta, dane, base64, mimeType) {
+  const root = getOrCreateFolder(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+  const klientFolder = getOrCreateFolder(root, wizyta.klient);
+  const dataKrotka = Utilities.formatDate(new Date(wizyta.dataUtworzenia), 'Europe/Warsaw', 'yyyy-MM-dd');
+  const obiektFolder = getOrCreateFolder(klientFolder, wizyta.obiekt + ' — ' + dataKrotka);
+
+  const ext = (mimeType && mimeType.indexOf('png') >= 0) ? 'png' : 'jpg';
+  const opis = [dane.lokalizacja, dane.producent, dane.model].filter(x => x).join(' - ');
+  const stamp = Utilities.formatDate(new Date(), 'Europe/Warsaw', 'HHmmss');
+  const fileName = sanitizeName(opis || 'urzadzenie') + ' - dodatkowe ' + stamp + '.' + ext;
+
+  const bytes = Utilities.base64Decode(base64);
+  const blob = Utilities.newBlob(bytes, mimeType || 'image/jpeg', fileName);
+  const file = obiektFolder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { url: file.getUrl(), fileId: file.getId() };
+}
+function addZdjecie(data) {
+  if (!data.imageBase64) throw new Error('Brak zdjęcia');
+  const uSheet = getUrzadzeniaSheet();
+  const uRows = uSheet.getDataRange().getValues();
+  let urzRow = null;
+  for (let i = 1; i < uRows.length; i++) {
+    if (String(uRows[i][0]) === String(data.urzadzenieId)) { urzRow = uRows[i]; break; }
+  }
+  if (!urzRow) throw new Error('Nie znaleziono urządzenia');
+  const wizyta = getWizyta(urzRow[1]);
+  if (!wizyta) throw new Error('Nie znaleziono wizyty');
+  if (wizyta.status !== 'w_toku') throw new Error('Ta wizyta jest już zakończona');
+
+  const dane = { lokalizacja: urzRow[7], producent: urzRow[3], model: urzRow[4] };
+  const foto = saveZdjecieDodatkowe(wizyta, dane, data.imageBase64, data.mimeType);
+  const id = newId('z');
+  const ts = nowStr();
+  getZdjeciaSheet().appendRow([id, data.urzadzenieId, foto.url, foto.fileId, ts]);
+  touchWizyta(urzRow[1]);
+  return { id: id, urzadzenieId: data.urzadzenieId, url: foto.url, fileId: foto.fileId, dataUtworzenia: ts };
+}
+function deleteZdjecie(id) {
+  const sheet = getZdjeciaSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
 // ============ URZĄDZENIA ============
 function rowToUrzadzenie(r) {
   return {
@@ -169,11 +244,14 @@ function rowToUrzadzenie(r) {
 
 function listUrzadzenia(wizytaId) {
   const rows = getUrzadzeniaSheet().getDataRange().getValues();
+  const zdjeciaByUrz = listZdjeciaByUrzadzenie();
   const out = [];
   for (let i = 1; i < rows.length; i++) {
     if (!rows[i][0]) continue;
     if (String(rows[i][1]) !== String(wizytaId)) continue;
-    out.push(rowToUrzadzenie(rows[i]));
+    const u = rowToUrzadzenie(rows[i]);
+    u.zdjeciaDodatkowe = zdjeciaByUrz[u.id] || [];
+    out.push(u);
   }
   out.sort((a, b) => (Number(a.kolejnosc) || 0) - (Number(b.kolejnosc) || 0));
   return out;
@@ -380,6 +458,8 @@ function doPost(e) {
     if (action === 'add_urzadzenie') return jsonOut({ ok: true, data: addUrzadzenie(body) });
     if (action === 'update_urzadzenie') return jsonOut({ ok: true, data: updateUrzadzenie(body) });
     if (action === 'delete_urzadzenie') return jsonOut({ ok: true, deleted: deleteUrzadzenie(body.id) });
+    if (action === 'add_zdjecie') return jsonOut({ ok: true, data: addZdjecie(body) });
+    if (action === 'delete_zdjecie') return jsonOut({ ok: true, deleted: deleteZdjecie(body.id) });
     if (action === 'reorder_urzadzenia') return jsonOut({ ok: true, done: reorderUrzadzenia(body.wizytaId, body.orderedIds || []) });
     return jsonOut({ ok: false, error: 'Nieznana akcja' });
   } catch (err) {
