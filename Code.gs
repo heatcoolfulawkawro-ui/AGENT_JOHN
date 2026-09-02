@@ -402,17 +402,29 @@ function analyzePhoto(base64, mimeType) {
     contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64 } }] }],
     generationConfig: { temperature: 0, responseMimeType: 'application/json' }
   };
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-  const code = res.getResponseCode();
-  const bodyText = res.getContentText();
-  if (code < 200 || code >= 300) {
+
+  // 503 (model chwilowo przeciążony) i 429 (limit zapytań) zwykle mijają po
+  // chwili — próbujemy ponownie zamiast od razu poddawać serwisanta ręcznemu
+  // wpisywaniu. Inne kody (zły klucz, zła nazwa modelu) ponowna próba nie naprawi.
+  const MAX_TRIES = 3;
+  let code, bodyText;
+  for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    code = res.getResponseCode();
+    bodyText = res.getContentText();
+    if (code >= 200 && code < 300) break;
+    if ((code === 503 || code === 429) && attempt < MAX_TRIES) {
+      Utilities.sleep(1200 * attempt);
+      continue;
+    }
     throw new Error('Błąd odczytu AI (' + code + '): ' + bodyText.slice(0, 300));
   }
+
   const parsed = JSON.parse(bodyText);
   let text;
   try {
