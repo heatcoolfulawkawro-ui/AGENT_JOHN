@@ -420,22 +420,33 @@ function analyzePhoto(base64, mimeType) {
 
   const prompt = 'Jesteś asystentem serwisanta klimatyzacji/HVAC. Na zdjęciu jest tabliczka znamionowa ' +
     'urządzenia (klimatyzator, centrala wentylacyjna, agregat wody lodowej itp). Odczytaj z niej: producenta ' +
-    '(Manufacturer/Brand), model (Model/Model No./Type), numer seryjny (Serial No./S/N) oraz — jeśli widoczny — ' +
-    'czynnik chłodniczy (Refrigerant/Refrigerant Type/Czynnik chłodniczy, np. R32, R410A, R404A, R134A). ' +
+    '(Manufacturer/Brand), model (Model/Model No./Type/Modèle), numer seryjny (Serial No./S/N) oraz — jeśli ' +
+    'widoczne — czynnik chłodniczy i jego ilość fabryczną (Refrigerant/Réfrigérant/Czynnik chłodniczy, np. R32, ' +
+    'R410A, R404A, R134A). ' +
     'WAŻNE — numer seryjny: na wielu tabliczkach numer seryjny nie ma żadnej etykiety "S/N" ani "Serial No." ' +
     'obok siebie — to po prostu ciąg cyfr/znaków wydrukowany bezpośrednio POD kodem kreskowym (lub kodem QR), ' +
     'bez żadnego opisu. Jeśli nie widzisz pola opisanego wprost jako numer seryjny, ale na tabliczce jest kod ' +
     'kreskowy, odczytaj jako numer seryjny ciąg znaków wydrukowany bezpośrednio pod (lub bezpośrednio obok) tego ' +
     'kodu kreskowego — to niemal zawsze jest właśnie numer seryjny, nawet bez etykiety. Jeśli na tabliczce jest ' +
     'kilka kodów kreskowych z ciągami znaków, wybierz ten, który wygląda na numer seryjny (zwykle unikalny, ' +
-    'dłuższy ciąg cyfr/liter — nie kod modelu, który już odczytałeś osobno w polu model). WAŻNE — czynnik ' +
-    'chłodniczy: pole "czynnik" wypełniaj tylko wtedy, gdy na tabliczce faktycznie widać jego oznaczenie (typowe ' +
-    'dla jednostek zewnętrznych/agregatów; jednostki wewnętrzne zwykle go nie pokazują — wtedy zostaw puste). ' +
-    'Podaj tam wyłącznie sam symbol czynnika (np. "R32"), bez GWP ani ilości w kg — te ewentualnie widoczne obok ' +
-    'liczby (np. "0,62 kg") pomiń. Zwróć WYŁĄCZNIE czysty JSON, bez dodatkowego tekstu, w formacie ' +
-    '{"producent":"...","model":"...","sn":"...","czynnik":"..."}. Jeśli któregoś pola nie da się odczytać, ' +
-    'wstaw pusty string "". Przepisz model, numer seryjny i czynnik dokładnie tak, znak po znaku, jak są na ' +
-    'tabliczce — nie poprawiaj ich i nie zgaduj.';
+    'dłuższy ciąg cyfr/liter — nie kod modelu, który już odczytałeś osobno w polu model). UWAGA: pole opisane ' +
+    'jako "Prod. No", "Référence", "Ref." lub podobnie to numer katalogowy/referencyjny producenta, NIE numer ' +
+    'seryjny — zignoruj je całkowicie (nie wpisuj go ani jako model, ani jako sn), prawdziwego SN szukaj przy ' +
+    'kodzie kreskowym jak opisano wyżej. Typowy układ na wielu tabliczkach (np. Airwell i podobni): u góry ' +
+    '"Prod. No/Référence: XXXX" (pomiń to pole), niżej "Model (Modèle): XXXX" (to jest model), a przy kodzie ' +
+    'kreskowym na dole ciąg typu "4M60306011" bez żadnej etykiety obok (to jest sn). ' +
+    'WAŻNE — czynnik chłodniczy: pola "czynnik" i "czynnikFabryczny" wypełniaj tylko wtedy, gdy na tabliczce ' +
+    'faktycznie widać oznaczenie czynnika (typowe dla jednostek zewnętrznych/agregatów; jednostki wewnętrzne ' +
+    'zwykle go nie pokazują — wtedy zostaw oba pola puste). W polu "czynnik" podaj wyłącznie sam symbol (np. ' +
+    '"R32"), bez GWP i bez ilości w kg. Ilość fabryczna bywa podana w tym samym polu co czynnik, np. ' +
+    '"Réfrigérant: R32/0.62kg" albo "R32 0,62 kg" — w takim wypadku rozdziel to na dwie wartości: czynnik="R32" ' +
+    'i czynnikFabryczny — sama liczba w kg, zapisana z kropką jako separatorem dziesiętnym (np. "0.62"), bez ' +
+    'jednostki "kg" i bez przecinka. Jeśli ilości fabrycznej nie widać, zostaw czynnikFabryczny puste, nawet ' +
+    'gdy sam czynnik jest znany. ' +
+    'Zwróć WYŁĄCZNIE czysty JSON, bez dodatkowego tekstu, w formacie ' +
+    '{"producent":"...","model":"...","sn":"...","czynnik":"...","czynnikFabryczny":"..."}. Jeśli któregoś pola ' +
+    'nie da się odczytać, wstaw pusty string "". Przepisz model i numer seryjny dokładnie tak, znak po znaku, ' +
+    'jak są na tabliczce — nie poprawiaj ich i nie zgaduj.';
 
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(key);
   const payload = {
@@ -474,8 +485,11 @@ function analyzePhoto(base64, mimeType) {
   }
   text = text.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
   let out;
-  try { out = JSON.parse(text); } catch (e) { out = { producent: '', model: '', sn: '', czynnik: '' }; }
-  return { producent: out.producent || '', model: out.model || '', sn: out.sn || '', czynnik: out.czynnik || '' };
+  try { out = JSON.parse(text); } catch (e) { out = { producent: '', model: '', sn: '', czynnik: '', czynnikFabryczny: '' }; }
+  return {
+    producent: out.producent || '', model: out.model || '', sn: out.sn || '',
+    czynnik: out.czynnik || '', czynnikFabryczny: out.czynnikFabryczny || ''
+  };
 }
 
 // ============ ROUTER ============

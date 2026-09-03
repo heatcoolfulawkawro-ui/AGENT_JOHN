@@ -530,6 +530,9 @@ async function onPhotoChosen(file){
         state.form.model = res.data.model || '';
         state.form.sn = res.data.sn || '';
         state.form.czynnik = res.data.czynnik || '';
+        // na wypadek gdyby model zwrócił przecinek zamiast kropki mimo instrukcji —
+        // pole liczbowe (type=number) po prostu zignoruje wartość z przecinkiem.
+        state.form.czynnikFabryczny = String(res.data.czynnikFabryczny || '').trim().replace(',', '.');
         formAiFilled = true;
       } else {
         analyzeError = res.error || 'Nie udało się odczytać zdjęcia automatycznie — wpisz dane ręcznie.';
@@ -1496,13 +1499,14 @@ function updateSystemFieldVisibility(root){
 }
 
 function refrigFieldsGroupHtml(){
-  const czynnikAi = (formAiFilled && !analyzing && state.form.czynnik) ? true : false;
-  const aiTag = czynnikAi ? ' <span class="ailabel">✨ odczytane</span>' : '';
-  const aiCls = czynnikAi ? ' ai' : '';
+  const czynnikAi = (formAiFilled && !analyzing && state.form.czynnik) ? ' ai' : '';
+  const czynnikTag = czynnikAi ? ' <span class="ailabel">✨ odczytane</span>' : '';
+  const fabAi = (formAiFilled && !analyzing && state.form.czynnikFabryczny) ? ' ai' : '';
+  const fabTag = fabAi ? ' <span class="ailabel">✨ odczytane</span>' : '';
   return '<div id="refrigFieldsGroup">' +
-    '<div class="field' + aiCls + '"><label>Czynnik chłodniczy' + aiTag + '</label><input id="inpCzynnik" list="czynnikOptions" placeholder="np. R32" value="' + esc(state.form.czynnik||'') + '"></div>' +
+    '<div class="field' + czynnikAi + '"><label>Czynnik chłodniczy' + czynnikTag + '</label><input id="inpCzynnik" list="czynnikOptions" placeholder="np. R32" value="' + esc(state.form.czynnik||'') + '"></div>' +
     '<datalist id="czynnikOptions">' + Object.keys(GWP_TABLE).map(k => '<option value="'+k+'">').join('') + '</datalist>' +
-    '<div class="field"><label>Ilość fabryczna (kg)</label><input id="inpCzynnikFab" type="number" step="0.01" min="0" inputmode="decimal" placeholder="np. 0.62" value="' + esc(state.form.czynnikFabryczny||'') + '"></div>' +
+    '<div class="field' + fabAi + '"><label>Ilość fabryczna (kg)' + fabTag + '</label><input id="inpCzynnikFab" type="number" step="0.01" min="0" inputmode="decimal" placeholder="np. 0.62" value="' + esc(state.form.czynnikFabryczny||'') + '"></div>' +
     '<div class="field"><label>Ilość dodatkowa na instalację (kg)</label><input id="inpCzynnikDod" type="number" step="0.01" min="0" inputmode="decimal" placeholder="zostaw puste jeśli nie wiadomo" value="' + esc(state.form.czynnikDodatkowy||'') + '"></div>' +
     '<div class="co2live" id="co2live"></div>' +
     '<p class="co2hint">Suma i próg CRO liczone automatycznie. Próg 5 t CO₂-eq dotyczy urządzeń niehermetycznych (Rozp. UE 2024/573) — dla nietypowych przypadków zweryfikuj klasyfikację samodzielnie.</p>' +
