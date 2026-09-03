@@ -431,11 +431,12 @@ async function apiGet(params){
   const res = await fetch(url);
   return res.json();
 }
-async function apiPost(body){
+async function apiPost(body, signal){
   const res = await fetch(GAS_URL, {
     method: 'POST',
     headers: {'Content-Type': 'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({token:TOKEN}, body))
+    body: JSON.stringify(Object.assign({token:TOKEN}, body)),
+    signal: signal
   });
   return res.json();
 }
@@ -513,6 +514,29 @@ function fileToDownscaledBase64(file){
   });
 }
 
+// Zegar przy "Analizuję zdjęcie" — nie triggeruje pełnego render() (żeby nic
+// nie migało co sekundę), tylko dopisuje sekundy bezpośrednio do DOM-u. Przydaje
+// się też diagnostycznie: jak odczyt znów będzie wolny, Paweł zobaczy dokładną
+// liczbę sekund zamiast "kilku minut z pamięci".
+let analyzeTimerHandle = null;
+function startAnalyzeTimer(){
+  const t0 = Date.now();
+  clearInterval(analyzeTimerHandle);
+  analyzeTimerHandle = setInterval(() => {
+    const el = document.getElementById('analyzeTimerText');
+    if(el) el.textContent = Math.round((Date.now() - t0) / 1000) + 's';
+  }, 500);
+}
+function stopAnalyzeTimer(){
+  clearInterval(analyzeTimerHandle);
+  analyzeTimerHandle = null;
+}
+
+// Twardy limit czasu na odczyt AI — słaby zasięg w terenie (piwnice, dachy,
+// maszynownie) albo przeciążony model nie mogą już zawiesić appki na kilka
+// minut: po ANALYZE_TIMEOUT_MS przerywamy i wracamy do ręcznego wpisywania.
+const ANALYZE_TIMEOUT_MS = 20000;
+
 async function onPhotoChosen(file){
   if(!file) return;
   try{
@@ -523,8 +547,11 @@ async function onPhotoChosen(file){
     analyzeError = '';
     analyzing = true;
     render();
+    startAnalyzeTimer();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
     try{
-      const res = await apiPost({ action:'analyze_photo', imageBase64: picked.base64, mimeType: picked.mimeType });
+      const res = await apiPost({ action:'analyze_photo', imageBase64: picked.base64, mimeType: picked.mimeType }, controller.signal);
       if(res.ok){
         state.form.producent = res.data.producent || '';
         state.form.model = res.data.model || '';
@@ -538,11 +565,18 @@ async function onPhotoChosen(file){
         analyzeError = res.error || 'Nie udało się odczytać zdjęcia automatycznie — wpisz dane ręcznie.';
       }
     }catch(err){
-      analyzeError = 'Brak połączenia — wpisz dane ręcznie (zdjęcie zostanie zapisane).';
+      if(err.name === 'AbortError'){
+        analyzeError = 'Odczyt AI trwał za długo (>20s, pewnie słaby zasięg) — przerwano. Wpisz dane ręcznie, zdjęcie i tak się zapisze.';
+      } else {
+        analyzeError = 'Brak połączenia — wpisz dane ręcznie (zdjęcie zostanie zapisane).';
+      }
     }
+    clearTimeout(timeoutId);
+    stopAnalyzeTimer();
     analyzing = false;
     render();
   }catch(err){
+    stopAnalyzeTimer();
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
   }
 }
@@ -1429,7 +1463,7 @@ function renderDodajTabInner(){
     '</div><p>tabliczki znamionowej urządzenia — albo pomiń i wpisz dane ręcznie poniżej</p></div>';
   } else {
     html += '<div class="thumbrow"><button type="button" class="thumb lbtrigger" data-lb="' + esc(previewSrc) + '" data-ext="' + esc(previewSrc) + '"><img src="' + esc(previewSrc) + '" alt=""></button>';
-    if(analyzing) html += '<div class="scanstate">Analizuję zdjęcie<span class="dot3"><span></span><span></span><span></span></span></div>';
+    if(analyzing) html += '<div class="scanstate">Analizuję zdjęcie<span class="dot3"><span></span><span></span><span></span></span> <span id="analyzeTimerText" style="color:var(--ink-dim);font-size:11px">0s</span></div>';
     else if(analyzeError) html += '<div class="scanstate" style="color:var(--red)">' + esc(analyzeError) + '</div>';
     else html += '<div class="scanstate" style="color:var(--ink-dim)">Zdjęcie gotowe do zapisu</div>';
     html += '</div>';

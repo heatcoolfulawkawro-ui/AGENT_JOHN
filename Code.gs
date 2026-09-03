@@ -33,8 +33,10 @@ const ROOT_FOLDER_NAME = 'HVAC Notatki';
 // Nazwa modelu Gemini — jeśli Google zmieni nazewnictwo i odczyt zacznie zwracać
 // błąd 404, podmień tę jedną stałą na aktualną nazwę z https://ai.google.dev/gemini-api/docs/models
 // (2.5-flash wycofane dla nowych użytkowników 31.08.2026 — Google w treści błędu 404
-// wskazał 3.6-flash jako następcę, stąd ta wartość).
-const GEMINI_MODEL = 'gemini-3.6-flash';
+// wskazał 3.6-flash jako następcę). Zmienione z 3.6-flash na 3.5-flash-lite 03.09.2026
+// — "flash-lite" to najszybszy/najtańszy wariant z obsługą zdjęć i JSON-a, w sam raz
+// do odczytu jednej tabliczki: mniej "myślenia", więc krótszy czas odpowiedzi.
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 function checkAuth(token) {
   if (token !== SHARED_SECRET) throw new Error('Brak autoryzacji');
