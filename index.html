@@ -768,6 +768,11 @@ async function trySyncEntry(id, payload){
       const merged = Object.assign({}, res.data, { _synced: true });
       if(!merged.zdjecieUrl && localPreview) merged._localPreview = localPreview;
       state.urzadzenia[i] = merged;
+      // Nowe urządzenie dostaje przy pierwszej synchronizacji prawdziwe ID
+      // zamiast lokalnego (local_...). Jeśli coś inne było już z nim sparowane
+      // (przez to stare lokalne ID), tę referencję trzeba przepisać na nowe —
+      // inaczej parowanie zostaje wskazujące donikąd.
+      if(!isEdit && merged.id !== id) await migrateParujZIdRefs(id, merged.id);
     }
     persistLocalUrzadzenia();
     showToast('zsynchronizowano');
@@ -775,6 +780,23 @@ async function trySyncEntry(id, payload){
     showToast('Brak połączenia — zapisano lokalnie, spróbuję ponownie', true);
   }
   render();
+}
+
+async function migrateParujZIdRefs(oldId, newId){
+  const affected = state.urzadzenia.filter(u => u.parujZId === oldId);
+  for(const u of affected){
+    const i = state.urzadzenia.findIndex(x => x.id === u.id);
+    if(i < 0) continue;
+    const updated = Object.assign({}, state.urzadzenia[i], { parujZId: newId });
+    if(updated._payload) updated._payload = Object.assign({}, updated._payload, { parujZId: newId });
+    state.urzadzenia[i] = updated;
+    if(!isLocalOnlyId(u.id)){
+      // Ten wpis już wcześniej zsynchronizowany — poprawka musi jeszcze
+      // dogonić serwer, inaczej w arkuszu zostanie martwe ID.
+      try{ await apiPost({action:'update_urzadzenie', id: u.id, parujZId: newId}); }
+      catch(e){ /* dogoni przy najbliższej ogólnej synchronizacji tego wpisu */ }
+    }
+  }
 }
 
 async function retryAllUnsynced(){
