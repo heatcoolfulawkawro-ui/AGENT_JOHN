@@ -103,6 +103,7 @@
   .devcard .title{ font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .devcard .meta{ font-size:11.5px; color:var(--ink-dim); margin-top:2px; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .uwagiline{ font-size:11.5px; color:var(--amber); margin-top:4px; line-height:1.4; white-space:normal; word-break:break-word; }
+  .pairline{ font-size:11.5px; color:var(--blue); margin-top:4px; line-height:1.4; white-space:normal; word-break:break-word; }
   .tag{ display:inline-block; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:10px; color:var(--ink-dim); margin-top:4px; }
   .tag.out{ color:var(--blue); border-color:#2a4256; }
   .devcard .acts{ display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
@@ -375,6 +376,22 @@ function indoorUnits(){ return state.urzadzenia.filter(u => u.typ && u.typ!=='in
 function childrenOf(outdoorId){ return indoorUnits().filter(u => u.parujZId === outdoorId); }
 function unassignedIndoor(){ return indoorUnits().filter(u => !u.parujZId); }
 
+// Krótka linijka "z kim sparowana" pod kartą urządzenia w zakładce Lista —
+// żeby nie trzeba było w tym celu przełączać się do zakładki Pary.
+function pairInfoLine(u){
+  if(isZewTyp(u.typ)){
+    const kids = childrenOf(u.id);
+    if(!kids.length) return '';
+    const names = kids.map(k => k.lokalizacja || devShortLabel(k)).join(', ');
+    return '<div class="pairline">🔗 steruje: ' + esc(names) + '</div>';
+  }
+  if(u.parujZId){
+    const parent = state.urzadzenia.find(x => x.id === u.parujZId);
+    return '<div class="pairline">🔗 sparowana: ' + (parent ? esc(parent.lokalizacja || devShortLabel(parent)) : '(agregat spoza listy)') + '</div>';
+  }
+  return '';
+}
+
 function openPairModal(indoorId){
   const indoor = state.urzadzenia.find(u => u.id === indoorId);
   if(!indoor) return;
@@ -409,11 +426,16 @@ document.getElementById('pairModal').addEventListener('click', (e) => {
 async function setParowanie(indoorId, outdoorId){
   const i = state.urzadzenia.findIndex(u => u.id === indoorId);
   if(i < 0) return;
-  state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], { parujZId: outdoorId || '' });
+  const updated = Object.assign({}, state.urzadzenia[i], { parujZId: outdoorId || '' });
+  // Jeśli to urządzenie czeka jeszcze na swoją pierwszą synchronizację, dopisz
+  // parowanie też do _payload — inaczej ta pierwsza synchronizacja wyśle stary
+  // payload (sprzed sparowania) i nadpisze to, co przed chwilą ustawiliśmy.
+  if(updated._payload) updated._payload = Object.assign({}, updated._payload, { parujZId: outdoorId || '' });
+  state.urzadzenia[i] = updated;
   persistLocalUrzadzenia();
   render();
   if(isLocalOnlyId(indoorId)){
-    showToast('Ta jednostka jeszcze się nie zsynchronizowała — spróbuj ponownie za chwilę', true);
+    showToast('Zapisano lokalnie — dopnie się przy najbliższej synchronizacji', true);
     return;
   }
   try{
@@ -808,6 +830,10 @@ async function submitForm(){
     }
   } else {
     entryId = 'local_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    // clientId jedzie do serwera razem z resztą payloadu — pozwala backendowi
+    // rozpoznać, że dwie próby zapisu (np. auto-sync przy otwarciu wizyty
+    // nałożony na sync tuż po dodaniu) to to samo urządzenie, nie duplikat.
+    payload.clientId = entryId;
     state.urzadzenia.push(Object.assign({ id: entryId }, payload, {
       _synced: false, _payload: payload, _localPreview: localPreview
     }));
@@ -1342,6 +1368,7 @@ function renderDevCard(u, idx, total){
     : '<div class="thumb">' + thumbHtml + '</div>';
   html += '<div class="body"><div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
   if(u.uwagi) html += '<div class="uwagiline">📝 ' + esc(u.uwagi) + '</div>';
+  html += pairInfoLine(u);
   if(u.typ) html += '<span class="' + tagClass + '">' + esc(typLabel(u.typ)) + '</span>';
   if(isZewTyp(u.typ)) html += co2eqBadgeHtml(u);
   html += '</div>';
