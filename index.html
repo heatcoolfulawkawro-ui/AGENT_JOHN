@@ -109,7 +109,11 @@
   .uwagiline{ font-size:11.5px; color:var(--amber); margin-top:4px; line-height:1.4; white-space:normal; word-break:break-word; }
   .pairline{ font-size:11.5px; color:var(--blue); margin-top:4px; line-height:1.4; white-space:normal; word-break:break-word; }
   .tag{ display:inline-block; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:10px; color:var(--ink-dim); margin-top:4px; }
-  .tag.out{ color:var(--blue); border-color:#2a4256; }
+  .tag.zew{ color:var(--red); border-color:#4a2c28; }
+  .tag.wew{ color:var(--blue); border-color:#2a4256; }
+  .orientbadge{ font-size:11.5px; font-weight:700; margin-bottom:2px; }
+  .orientbadge.zew{ color:var(--red); }
+  .orientbadge.wew{ color:var(--blue); }
   .devcard .acts{ display:flex; flex-direction:column; gap:5px; flex-shrink:0; }
   .devcard .acts button{
     background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim);
@@ -152,16 +156,13 @@
   .folderlinkarrow{ display:block; color:var(--blue); font-size:11.5px; font-weight:600; margin-top:2px; }
   .innesection{ margin:18px 0; }
 
-  .typtopgrid{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
-  .typtopbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); border-radius:8px; padding:10px 6px; font-size:12px; line-height:1.3; font-family:inherit; cursor:pointer; }
-  .typtopbtn.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
-  .typfieldwrap .typegrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
-  .typcol{ background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:8px; display:flex; flex-direction:column; gap:5px; }
-  .typcolhead{ font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); text-align:center; margin-bottom:2px; }
-  .typcolhead.zew{ color:var(--blue); }
-  .typebtn{ background:var(--panel); border:1px solid var(--line); color:var(--ink-dim); border-radius:7px; padding:9px 4px; font-size:12.5px; font-family:inherit; cursor:pointer; }
-  .typebtn.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
-  .typcol:has(.typcolhead.zew) .typebtn.sel{ background:#152230; border-color:var(--blue); color:var(--blue); }
+  .typfieldwrap select{
+    width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+    padding:11px 12px; color:var(--ink); font-size:15px; font-family:inherit; appearance:none;
+    -webkit-appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--ink-dim) 50%),linear-gradient(135deg,var(--ink-dim) 50%,transparent 50%);
+    background-position:calc(100% - 18px) center,calc(100% - 13px) center; background-size:5px 5px,5px 5px; background-repeat:no-repeat;
+  }
   .typeinne{ width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); border-radius:8px; padding:9px; font-size:12.5px; font-family:inherit; cursor:pointer; }
   .typeinne.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
 
@@ -249,11 +250,10 @@ const TYP_GROUPS = [
   { key:'vrf', label:'VRF' }
 ];
 // Kategoria nadrzędna nad Typem. "Klimatyzacja" to jedyna z podziałem
-// wew/zew (siatka Split/Multi/VRF poniżej) — pozostałe to na razie proste,
-// płaskie typy bez dalszego podziału; Paweł doda podtypy później (np.
-// Centrale: Nawiewna/Wywiewna/Nawiewno-Wywiewna) — wtedy tylko rozszerzymy
-// klimaGridHtml-owy wzorzec o kolejną siatkę dla tej kategorii, bez zmian
-// w danych już zapisanych.
+// wew/zew (podgrupa Split/Multi/VRF w typSelectHtml) — pozostałe to na razie
+// proste, płaskie typy bez dalszego podziału; Paweł doda podtypy później
+// (np. Centrale: Nawiewna/Wywiewna/Nawiewno-Wywiewna) — wtedy dopiszemy
+// kolejną optgroup w typSelectHtml, bez zmian w danych już zapisanych.
 const TYP_TOP_CATEGORIES = [
   { key:'klima', label:'Klimatyzacja' },
   { key:'centrala_went', label:'Centrale wentylacyjne' },
@@ -412,6 +412,26 @@ function outdoorUnits(){ return state.urzadzenia.filter(u => isZewTyp(u.typ)); }
 function indoorUnits(){ return state.urzadzenia.filter(u => u.typ && typTopCategoryOf(u.typ)==='klima' && !isZewTyp(u.typ)); }
 function childrenOf(outdoorId){ return indoorUnits().filter(u => u.parujZId === outdoorId); }
 function unassignedIndoor(){ return indoorUnits().filter(u => !u.parujZId); }
+
+// Numer porządkowy Wew./Zew. osobno dla każdej strony — wg aktualnej
+// kolejności na liście (tej samej co strzałki ↑↓), żeby Paweł mógł policzyć
+// w terenie i porównać z tym co widzi w zakładce Pary. Tylko rodzina
+// Klimatyzacja ma koncepcję wew/zew, patrz indoorUnits().
+function orientNumbers(){
+  const map = {};
+  let zewN = 0, wewN = 0;
+  state.urzadzenia.forEach(u => {
+    if(!u.typ || typTopCategoryOf(u.typ) !== 'klima') return;
+    if(isZewTyp(u.typ)) map[u.id] = { zew:true, num:++zewN };
+    else map[u.id] = { zew:false, num:++wewN };
+  });
+  return map;
+}
+function orientTagHtml(u, numbers){
+  const info = numbers[u.id];
+  if(!info) return '';
+  return '<span class="tag ' + (info.zew?'zew':'wew') + '">' + (info.zew?'Zew.':'Wew.') + ' #' + info.num + '</span>';
+}
 
 // Krótka linijka "z kim sparowana" pod kartą urządzenia w zakładce Lista —
 // żeby nie trzeba było w tym celu przełączać się do zakładki Pary.
@@ -1562,7 +1582,7 @@ function lightboxUrlFor(u){
   return '';
 }
 
-function renderDevCard(u, idx, total){
+function renderDevCard(u, idx, total, numbers){
   const thumb = thumbUrlFor(u);
   const thumbHtml = thumb ? '<img src="' + esc(thumb) + '" alt="">' : '📦';
   const lbUrl = lightboxUrlFor(u);
@@ -1574,7 +1594,7 @@ function renderDevCard(u, idx, total){
   if(u.lokalizacja) metaParts.push(esc(u.lokalizacja));
   if(u.system) metaParts.push(esc(u.system));
   const meta = metaParts.length ? metaParts.join(' · ') : '—';
-  const tagClass = isZewTyp(u.typ) ? 'tag out' : 'tag';
+  const orientInfo = numbers[u.id]; // {zew,num} tylko dla rodziny Klimatyzacja
   const pending = u._synced===false ? ' <span style="color:var(--amber)" title="niezsynchronizowane">⏳</span>' : '';
 
   let html = '<div class="devcard">';
@@ -1587,10 +1607,14 @@ function renderDevCard(u, idx, total){
   html += lbUrl
     ? '<button type="button" class="thumb lbtrigger" data-lb="' + esc(lbUrl) + '" data-ext="' + esc(extUrl) + '">' + thumbHtml + '</button>'
     : '<div class="thumb">' + thumbHtml + '</div>';
-  html += '<div class="body"><div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
+  html += '<div class="body">';
+  if(orientInfo){
+    html += '<div class="orientbadge ' + (orientInfo.zew?'zew':'wew') + '">' + esc(typLabel(u.typ)) + ' #' + orientInfo.num + '</div>';
+  }
+  html += '<div class="title">' + title + pending + '</div><div class="meta">' + meta + '</div>';
   if(u.uwagi) html += '<div class="uwagiline">📝 ' + esc(u.uwagi) + '</div>';
   html += pairInfoLine(u);
-  if(u.typ) html += '<span class="' + tagClass + '">' + esc(typLabel(u.typ)) + '</span>';
+  if(!orientInfo && u.typ) html += '<span class="tag">' + esc(typLabel(u.typ)) + '</span>';
   if(isZewTyp(u.typ)) html += co2eqBadgeHtml(u);
   html += '</div>';
   if(!state.readonly){
@@ -1627,7 +1651,8 @@ function renderListaTabInner(){
   if(!state.urzadzenia.length){
     html += '<div class="empty">' + (state.readonly ? 'Brak urządzeń w tym protokole.' : 'Brak urządzeń — dodaj pierwsze w zakładce „Dodaj urządzenie”.') + '</div>';
   } else {
-    state.urzadzenia.forEach((u,i) => { html += renderDevCard(u, i, state.urzadzenia.length); });
+    const numbers = orientNumbers();
+    state.urzadzenia.forEach((u,i) => { html += renderDevCard(u, i, state.urzadzenia.length, numbers); });
   }
 
   if(state.currentWizyta && state.currentWizyta.id){
@@ -1670,6 +1695,7 @@ function renderParyTabInner(){
 
   const outs = outdoorUnits();
   const unassigned = unassignedIndoor();
+  const numbers = orientNumbers();
   if(outs.length || unassigned.length){
     html += '<button type="button" class="ghostbtn" id="btnExportTree" style="margin-bottom:16px">📊 Eksportuj drzewko jako grafikę</button>';
   }
@@ -1680,13 +1706,13 @@ function renderParyTabInner(){
     outs.forEach(o => {
       const kids = childrenOf(o.id);
       html += '<div class="paircard"><div class="pairhead"><span class="dot"></span><div class="pairname">' +
-        esc(devShortLabel(o)) + (o.system ? ' <span class="tag out">' + esc(o.system) + '</span>' : '') + '</div></div>' +
+        orientTagHtml(o, numbers) + ' ' + esc(devShortLabel(o)) + (o.system ? ' <span class="tag">' + esc(o.system) + '</span>' : '') + '</div></div>' +
         co2eqBadgeHtml(o);
       if(!kids.length){
         html += '<div class="pairempty">brak przypisanych jednostek wewnętrznych</div>';
       } else {
         kids.forEach(k => {
-          html += '<div class="pairchild"><span class="pcname">' + esc(devShortLabel(k)) + '</span>';
+          html += '<div class="pairchild"><span class="pcname">' + orientTagHtml(k, numbers) + ' ' + esc(devShortLabel(k)) + '</span>';
           if(!state.readonly){
             html += '<span style="display:flex;gap:6px;flex-shrink:0">' +
               '<button type="button" class="pcbtn" data-id="' + esc(k.id) + '">🔗 Zmień</button>' +
@@ -1705,7 +1731,7 @@ function renderParyTabInner(){
     html += '<div class="empty">Wszystkie przypisane.</div>';
   } else {
     unassigned.forEach(u => {
-      html += '<div class="pairchild unassigned"><span class="pcname">' + esc(devShortLabel(u)) + '</span>';
+      html += '<div class="pairchild unassigned"><span class="pcname">' + orientTagHtml(u, numbers) + ' ' + esc(devShortLabel(u)) + '</span>';
       if(!state.readonly) html += '<button type="button" class="pcbtn" data-id="' + esc(u.id) + '">🔗 Przypisz</button>';
       html += '</div>';
     });
@@ -1750,10 +1776,7 @@ function renderDodajTabInner(){
   html += '<div class="field' + aiCls + '"><label>Numer seryjny' + aiTag + '</label><input id="inpSN" value="' + esc(state.form.sn) + '"></div>';
 
   html += '<div class="field typfieldwrap" id="typFieldWrap"><label>Typ urządzenia</label>';
-  html += '<div class="typtopgrid" id="typTopGrid">' +
-    TYP_TOP_CATEGORIES.map(c => '<button type="button" class="typtopbtn' + (typTopCategoryOf(formTyp)===c.key?' sel':'') + '" data-topcat="' + c.key + '">' + esc(c.label) + '</button>').join('') +
-  '</div>';
-  html += '<div id="klimaGridWrap">' + (typTopCategoryOf(formTyp)==='klima' ? klimaGridHtml() : '') + '</div>';
+  html += typSelectHtml(formTyp);
   html += '</div>';
   if(usesSystemTag(formTyp)){
     html += '<div class="field" id="systemFieldWrap"><label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '"></div>';
@@ -1781,40 +1804,38 @@ function renderDodajTabInner(){
   html += '<input type="file" id="galInput" accept="image/*" style="display:none">';
   return html;
 }
-// Siatka Split/Multi/VRF × Wew/Zew — widoczna tylko pod kategorią nadrzędną
-// "Klimatyzacja". Wydzielona osobno, żeby dało się ją wstawiać/usuwać
-// dynamicznie przy zmianie kategorii, bez pełnego render() (patrz niżej).
-function klimaGridHtml(){
-  return '<div class="typegrid">' +
-    '<div class="typcol"><div class="typcolhead">Wewnętrzna</div>' +
-      TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_wew')?' sel':'') + '" data-t="' + g.key + '_wew">' + g.label + '</button>').join('') +
-    '</div>' +
-    '<div class="typcol"><div class="typcolhead zew">Zewnętrzna</div>' +
-      TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_zew')?' sel':'') + '" data-t="' + g.key + '_zew">' + g.label + '</button>').join('') +
-    '</div>' +
-  '</div>';
-}
-function bindTypLeafButtons(root){
-  root.querySelectorAll('#klimaGridWrap .typebtn').forEach(b => {
-    b.addEventListener('click', () => {
-      formTyp = b.dataset.t;
-      root.querySelectorAll('#klimaGridWrap .typebtn').forEach(x => x.classList.remove('sel'));
-      b.classList.add('sel');
-      updateSystemFieldVisibility(root);
-      updateRefrigFieldsVisibility(root);
-    });
-  });
-}
-function updateKlimaGridVisibility(root){
-  const wrap = root.querySelector('#klimaGridWrap');
-  if(!wrap) return;
-  const needed = typTopCategoryOf(formTyp) === 'klima';
-  if(needed && !wrap.firstElementChild){
-    wrap.innerHTML = klimaGridHtml();
-    bindTypLeafButtons(root);
-  } else if(!needed && wrap.firstElementChild){
-    wrap.innerHTML = '';
+// Pojedyncza rozwijana lista zamiast siatki przycisków — jeden wiersz,
+// rozwija się dopiero po dotknięciu, więc formularz zostaje czytelny.
+// Klimatyzacja ma podgrupę Wew/Zew × Split/Multi/VRF, reszta kategorii to
+// płaskie opcje — patrz komentarz przy TYP_TOP_CATEGORIES.
+function typSelectHtml(sel){
+  let html = '<select id="typSelect">';
+  // Wpisy sprzed rozszerzenia typów ('wewnetrzna'/'zewnetrzna') nie mają
+  // odpowiednika wśród opcji niżej — dopisz jawnie, żeby select nie pokazał
+  // po cichu innej wartości niż to, co faktycznie zapisane (patrz typLabel).
+  if(sel === 'wewnetrzna' || sel === 'zewnetrzna'){
+    html += '<option value="' + sel + '" selected>' + esc(typLabel(sel)) + ' (starszy wpis)</option>';
   }
+  html += '<optgroup label="Klimatyzacja">' +
+    TYP_GROUPS.map(g => ['wew','zew'].map(o => {
+      const v = g.key + '_' + o;
+      return '<option value="' + v + '"' + (sel===v?' selected':'') + '>' + esc(typLabel(v)) + '</option>';
+    }).join('')).join('') +
+  '</optgroup>';
+  html += TYP_TOP_CATEGORIES.filter(c => c.key!=='klima').map(c =>
+    '<option value="' + c.key + '"' + (sel===c.key?' selected':'') + '>' + esc(c.label) + '</option>'
+  ).join('');
+  html += '</select>';
+  return html;
+}
+function bindTypSelect(root){
+  const sel = root.querySelector('#typSelect');
+  if(!sel) return;
+  sel.addEventListener('change', () => {
+    formTyp = sel.value;
+    updateSystemFieldVisibility(root);
+    updateRefrigFieldsVisibility(root);
+  });
 }
 // Wstawia/usuwa pole System bez pełnego render() — inaczej stracilibyśmy to,
 // co serwisant już wpisał w Producenta/Model/SN/Lokalizację/Uwagi w tym momencie.
@@ -1907,22 +1928,7 @@ function bindDodajTab(root){
   if(camInneQuick) camInneQuick.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
   if(galInneQuick) galInneQuick.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
 
-  bindTypLeafButtons(root);
-  root.querySelectorAll('.typtopbtn').forEach(b => {
-    b.addEventListener('click', () => {
-      const cat = b.dataset.topcat;
-      root.querySelectorAll('.typtopbtn').forEach(x => x.classList.remove('sel'));
-      b.classList.add('sel');
-      if(cat === 'klima'){
-        if(typTopCategoryOf(formTyp) !== 'klima') formTyp = 'split_wew';
-      } else {
-        formTyp = cat;
-      }
-      updateKlimaGridVisibility(root);
-      updateSystemFieldVisibility(root);
-      updateRefrigFieldsVisibility(root);
-    });
-  });
+  bindTypSelect(root);
 
   const submitBtn = root.querySelector('#btnSubmitForm');
   if(submitBtn) submitBtn.addEventListener('click', submitForm);
