@@ -1,6 +1,6 @@
 name: Deploy Apps Script backend
 
-# Odpala się automatycznie za każdym razem, gdy Code.gs zmieni się na main —
+# Odpala się automatycznie za każdym razem, gdy Kod.gs zmieni się na main —
 # wtedy Claude nie musi już prosić Pawła o ręczne wklejanie i redeploy w
 # edytorze Apps Script. Wymaga jednorazowej konfiguracji dwóch sekretów
 # repo (CLASP_CREDENTIALS, GAS_DEPLOYMENT_ID) — patrz opis w rozmowie z
@@ -9,7 +9,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'Code.gs'
+      - 'Kod.gs'
+      - 'appsscript.json'
   workflow_dispatch: {}
 
 jobs:
@@ -30,7 +31,7 @@ jobs:
         env:
           CLASP_CREDENTIALS: ${{ secrets.CLASP_CREDENTIALS }}
 
-      - name: Push Code.gs to Apps Script
+      - name: Push Kod.gs to Apps Script
         run: clasp push -f
 
       # --deploymentId jest tu celowo obowiązkowe: bez niego clasp tworzy
