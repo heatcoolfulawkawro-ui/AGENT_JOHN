@@ -74,12 +74,16 @@
   .shotpickrow{ display:flex; gap:8px; margin-bottom:10px; }
   .shotpickrow button{ flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink); font-family:inherit; font-size:12.5px; font-weight:600; border-radius:9px; padding:13px 6px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; }
   .shotpickrow button span.ic{ font-size:20px; }
+  .innequickrow{ margin-top:-4px; margin-bottom:16px; }
+  .innequickrow button{ background:none; border-style:dashed; color:var(--ink-dim); padding:9px 6px; }
+  .innequickrow button span.ic{ font-size:16px; }
   .shotbox p{ margin:0; font-size:11.5px; color:var(--ink-dim); }
 
   .thumbrow{ display:flex; gap:10px; align-items:center; background:var(--panel2); border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:12px; }
   .thumb{ width:56px; height:56px; border-radius:7px; background:linear-gradient(135deg,#2a3540,#1a232b); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:19px; overflow:hidden; text-decoration:none; border:none; padding:0; font-family:inherit; cursor:pointer; }
   .thumb img{ width:100%; height:100%; object-fit:cover; }
-  .scanstate{ font-size:13px; color:var(--amber); display:flex; align-items:center; gap:8px; }
+  .scanstate{ font-size:13px; color:var(--amber); display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
+  .retrybtn{ flex-shrink:0; width:36px; height:36px; border-radius:8px; background:var(--panel); border:1px solid var(--amber); color:var(--amber); font-size:16px; cursor:pointer; font-family:inherit; }
   .dot3{ display:inline-flex; gap:3px; }
   .dot3 span{ width:4px; height:4px; border-radius:50%; background:var(--amber); animation:pulse 1.2s infinite ease-in-out; }
   .dot3 span:nth-child(2){ animation-delay:.15s; } .dot3 span:nth-child(3){ animation-delay:.3s; }
@@ -148,6 +152,9 @@
   .folderlinkarrow{ display:block; color:var(--blue); font-size:11.5px; font-weight:600; margin-top:2px; }
   .innesection{ margin:18px 0; }
 
+  .typtopgrid{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+  .typtopbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--ink-dim); border-radius:8px; padding:10px 6px; font-size:12px; line-height:1.3; font-family:inherit; cursor:pointer; }
+  .typtopbtn.sel{ background:#1b2e22; border-color:var(--green); color:var(--green); font-weight:600; }
   .typfieldwrap .typegrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
   .typcol{ background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:8px; display:flex; flex-direction:column; gap:5px; }
   .typcolhead{ font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); text-align:center; margin-bottom:2px; }
@@ -241,11 +248,33 @@ const TYP_GROUPS = [
   { key:'multi', label:'Multi' },
   { key:'vrf', label:'VRF' }
 ];
+// Kategoria nadrzędna nad Typem. "Klimatyzacja" to jedyna z podziałem
+// wew/zew (siatka Split/Multi/VRF poniżej) — pozostałe to na razie proste,
+// płaskie typy bez dalszego podziału; Paweł doda podtypy później (np.
+// Centrale: Nawiewna/Wywiewna/Nawiewno-Wywiewna) — wtedy tylko rozszerzymy
+// klimaGridHtml-owy wzorzec o kolejną siatkę dla tej kategorii, bez zmian
+// w danych już zapisanych.
+const TYP_TOP_CATEGORIES = [
+  { key:'klima', label:'Klimatyzacja' },
+  { key:'centrala_went', label:'Centrale wentylacyjne' },
+  { key:'grzewcze', label:'Grzewcze' },
+  { key:'nawilzacz', label:'Nawilżacze parowe' },
+  { key:'chiller', label:'Agregaty wody lodowej' },
+  { key:'inne', label:'Inne' }
+];
+function typTopCategoryOf(t){
+  if(t==='centrala_went' || t==='grzewcze' || t==='nawilzacz' || t==='chiller' || t==='inne') return t;
+  return 'klima';
+}
 function typLabel(t){
   if(!t) return '';
   if(t==='inne') return 'Inne';
   if(t==='wewnetrzna') return 'Wewnętrzna'; // wpisy sprzed rozszerzenia typów
   if(t==='zewnetrzna') return 'Zewnętrzna'; // wpisy sprzed rozszerzenia typów
+  if(t==='centrala_went') return 'Centrala wentylacyjna';
+  if(t==='grzewcze') return 'Grzewcze';
+  if(t==='nawilzacz') return 'Nawilżacz parowy';
+  if(t==='chiller') return 'Agregat wody lodowej';
   const m = /^(split|multi|vrf)_(wew|zew)$/.exec(t);
   if(m){
     const grp = TYP_GROUPS.find(g => g.key===m[1]);
@@ -377,7 +406,10 @@ function devShortLabel(u){
   return parts.length ? parts.join(' · ') : '(bez nazwy)';
 }
 function outdoorUnits(){ return state.urzadzenia.filter(u => isZewTyp(u.typ)); }
-function indoorUnits(){ return state.urzadzenia.filter(u => u.typ && u.typ!=='inne' && !isZewTyp(u.typ)); }
+// Parowanie dotyczy tylko rodziny Klimatyzacja — kotły, centrale, nawilżacze,
+// chillery i "Inne" nie mają koncepcji wew/zew do sparowania, więc nie mają
+// się co pojawiać na liście "nieprzypisane wewnętrzne".
+function indoorUnits(){ return state.urzadzenia.filter(u => u.typ && typTopCategoryOf(u.typ)==='klima' && !isZewTyp(u.typ)); }
 function childrenOf(outdoorId){ return indoorUnits().filter(u => u.parujZId === outdoorId); }
 function unassignedIndoor(){ return indoorUnits().filter(u => !u.parujZId); }
 
@@ -564,48 +596,60 @@ function stopAnalyzeTimer(){
 // minut: po ANALYZE_TIMEOUT_MS przerywamy i wracamy do ręcznego wpisywania.
 const ANALYZE_TIMEOUT_MS = 20000;
 
+// Właściwe wywołanie analizy dla aktualnie trzymanego formPhoto — wydzielone
+// z onPhotoChosen, żeby retryAnalyze() mogło ponowić odczyt TEGO SAMEGO zdjęcia
+// bez ponownego robienia/wybierania fotki.
+async function runAnalyze(){
+  formAiFilled = false;
+  analyzeError = '';
+  analyzing = true;
+  render();
+  startAnalyzeTimer();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+  try{
+    const res = await apiPost({ action:'analyze_photo', imageBase64: formPhoto.base64, mimeType: formPhoto.mimeType }, controller.signal);
+    if(res.ok){
+      state.form.producent = res.data.producent || '';
+      state.form.model = res.data.model || '';
+      state.form.sn = res.data.sn || '';
+      state.form.czynnik = res.data.czynnik || '';
+      // na wypadek gdyby model zwrócił przecinek zamiast kropki mimo instrukcji —
+      // pole liczbowe (type=number) po prostu zignoruje wartość z przecinkiem.
+      state.form.czynnikFabryczny = String(res.data.czynnikFabryczny || '').trim().replace(',', '.');
+      formAiFilled = true;
+    } else {
+      analyzeError = res.error || 'Nie udało się odczytać zdjęcia automatycznie — wpisz dane ręcznie.';
+    }
+  }catch(err){
+    if(err.name === 'AbortError'){
+      analyzeError = 'Odczyt AI trwał za długo (>20s, pewnie słaby zasięg) — przerwano. Wpisz dane ręcznie, zdjęcie i tak się zapisze.';
+    } else {
+      analyzeError = 'Brak połączenia — wpisz dane ręcznie (zdjęcie zostanie zapisane).';
+    }
+  }
+  clearTimeout(timeoutId);
+  stopAnalyzeTimer();
+  analyzing = false;
+  render();
+}
+
 async function onPhotoChosen(file){
   if(!file) return;
   try{
     const picked = await fileToDownscaledBase64(file);
     formPhoto = picked;
     formExistingPhotoUrl = null;
-    formAiFilled = false;
-    analyzeError = '';
-    analyzing = true;
-    render();
-    startAnalyzeTimer();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
-    try{
-      const res = await apiPost({ action:'analyze_photo', imageBase64: picked.base64, mimeType: picked.mimeType }, controller.signal);
-      if(res.ok){
-        state.form.producent = res.data.producent || '';
-        state.form.model = res.data.model || '';
-        state.form.sn = res.data.sn || '';
-        state.form.czynnik = res.data.czynnik || '';
-        // na wypadek gdyby model zwrócił przecinek zamiast kropki mimo instrukcji —
-        // pole liczbowe (type=number) po prostu zignoruje wartość z przecinkiem.
-        state.form.czynnikFabryczny = String(res.data.czynnikFabryczny || '').trim().replace(',', '.');
-        formAiFilled = true;
-      } else {
-        analyzeError = res.error || 'Nie udało się odczytać zdjęcia automatycznie — wpisz dane ręcznie.';
-      }
-    }catch(err){
-      if(err.name === 'AbortError'){
-        analyzeError = 'Odczyt AI trwał za długo (>20s, pewnie słaby zasięg) — przerwano. Wpisz dane ręcznie, zdjęcie i tak się zapisze.';
-      } else {
-        analyzeError = 'Brak połączenia — wpisz dane ręcznie (zdjęcie zostanie zapisane).';
-      }
-    }
-    clearTimeout(timeoutId);
-    stopAnalyzeTimer();
-    analyzing = false;
-    render();
+    await runAnalyze();
   }catch(err){
     stopAnalyzeTimer();
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
   }
+}
+
+function retryAnalyze(){
+  if(!formPhoto || analyzing) return;
+  runAnalyze();
 }
 
 // ============ ZDJĘCIA DODATKOWE (filtry, pompka skroplin, sprężarka itd. — bez odczytu AI) ============
@@ -711,6 +755,20 @@ async function deleteExtraPhoto(id){
 
 // ============ ZDJĘCIA "INNE" (montaż, awaria, materiały — całej wizyty, ============
 // ============ bez powiązania z konkretnym urządzeniem i bez odczytu AI) ============
+// Drugi, oddzielny wiersz przycisków w zakładce Dodaj, tuż pod zdjęciem
+// tabliczki — żeby dało się przeklikać "tabliczka → inne zdjęcie" jedno po
+// drugim bez przełączania się do Listy. Ten sam mechanizm zapisu co galeria
+// w Liście (onInnePhotoChosen), tylko inne wejście w UI.
+function innePhotoQuickRowHtml(){
+  if(state.readonly || !state.currentWizyta || !state.currentWizyta.id) return '';
+  const count = ((state.currentWizyta.zdjeciaInne)||[]).length;
+  return '<div class="shotpickrow innequickrow">' +
+      '<button type="button" id="btnCamInneQuick"><span class="ic">📎</span>Inne zdjęcie' + (count ? ' (' + count + ')' : '') + '</button>' +
+      '<button type="button" id="btnGalInneQuick"><span class="ic">🖼️</span>Z galerii</button>' +
+    '</div>' +
+    '<input type="file" id="innePhotoCamInputQuick" accept="image/*" capture="environment" style="display:none">' +
+    '<input type="file" id="innePhotoGalInputQuick" accept="image/*" style="display:none">';
+}
 function innePhotosGridHtml(){
   const list = (state.currentWizyta && state.currentWizyta.zdjeciaInne) || [];
   let html = '';
@@ -734,12 +792,10 @@ function innePhotosGridHtml(){
   return html;
 }
 function syncInneToLocalStorage(){ persistLocalUrzadzenia(); }
-function refreshInneGrid(root){
-  const grid = (root || document).querySelector('#innePhotosGrid');
-  if(!grid) return;
-  grid.innerHTML = innePhotosGridHtml();
-  bindInneGrid(grid);
-}
+// Zdjęcia "inne" mają teraz dwa wejścia w dwóch różnych zakładkach (galeria w
+// Liście, szybki wiersz w Dodaj) — więc po każdej zmianie robimy pełny render()
+// zamiast punktowego odświeżenia jednej siatki, żeby oba miejsca zawsze
+// pokazywały aktualny stan niezależnie od tego, gdzie akurat jest użytkownik.
 function bindInneGrid(grid){
   grid.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
   grid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteInnePhoto(b.dataset.id)));
@@ -751,7 +807,7 @@ function bindInneGrid(grid){
 }
 async function uploadInnePhoto(item){
   item._pending = true; item._failed = false;
-  refreshInneGrid();
+  render();
   let res;
   try{
     res = await apiPost({ action:'add_zdjecie_inne', wizytaId: state.currentWizyta.id, imageBase64: item._base64, mimeType: item._mimeType });
@@ -769,7 +825,7 @@ async function uploadInnePhoto(item){
     showToast('Nie udało się zapisać zdjęcia — zostało na liście, spróbuj ponownie: ' + (res.error || ''), true);
   }
   syncInneToLocalStorage();
-  refreshInneGrid();
+  render();
 }
 async function onInnePhotoChosen(file){
   if(!file || !state.currentWizyta || !state.currentWizyta.id) return;
@@ -780,7 +836,7 @@ async function onInnePhotoChosen(file){
     if(!state.currentWizyta.zdjeciaInne) state.currentWizyta.zdjeciaInne = [];
     state.currentWizyta.zdjeciaInne.push(item);
     syncInneToLocalStorage();
-    refreshInneGrid();
+    render();
     await uploadInnePhoto(item);
   }catch(err){
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
@@ -798,7 +854,7 @@ async function deleteInnePhoto(id){
   const removed = list[idx];
   list.splice(idx, 1);
   syncInneToLocalStorage();
-  refreshInneGrid();
+  render();
   if(!removed.fileId) return;
   try{
     const res = await apiPost({action:'delete_zdjecie_inne', id});
@@ -807,7 +863,7 @@ async function deleteInnePhoto(id){
   }catch(err){
     list.splice(idx, 0, removed);
     syncInneToLocalStorage();
-    refreshInneGrid();
+    render();
     showToast('Nie udało się usunąć: ' + err.message, true);
   }
 }
@@ -1676,7 +1732,7 @@ function renderDodajTabInner(){
   } else {
     html += '<div class="thumbrow"><button type="button" class="thumb lbtrigger" data-lb="' + esc(previewSrc) + '" data-ext="' + esc(previewSrc) + '"><img src="' + esc(previewSrc) + '" alt=""></button>';
     if(analyzing) html += '<div class="scanstate">Analizuję zdjęcie<span class="dot3"><span></span><span></span><span></span></span> <span id="analyzeTimerText" style="color:var(--ink-dim);font-size:11px">0s</span></div>';
-    else if(analyzeError) html += '<div class="scanstate" style="color:var(--red)">' + esc(analyzeError) + '</div>';
+    else if(analyzeError) html += '<div class="scanstate" style="color:var(--red)">' + esc(analyzeError) + '</div>' + (formPhoto ? '<button type="button" class="retrybtn" id="btnRetryAnalyze" title="Spróbuj odczytać ponownie">🔄</button>' : '');
     else html += '<div class="scanstate" style="color:var(--ink-dim)">Zdjęcie gotowe do zapisu</div>';
     html += '</div>';
     html += '<div class="shotpickrow" style="margin-top:-4px;margin-bottom:14px">' +
@@ -1685,22 +1741,19 @@ function renderDodajTabInner(){
     '</div>';
   }
 
+  html += innePhotoQuickRowHtml();
+
   const aiTag = (formAiFilled && !analyzing) ? ' <span class="ailabel">✨ odczytane</span>' : '';
   const aiCls = (formAiFilled && !analyzing) ? ' ai' : '';
   html += '<div class="field' + aiCls + '"><label>Producent' + aiTag + '</label><input id="inpProducent" value="' + esc(state.form.producent) + '"></div>';
   html += '<div class="field' + aiCls + '"><label>Model' + aiTag + '</label><input id="inpModel" value="' + esc(state.form.model) + '"></div>';
   html += '<div class="field' + aiCls + '"><label>Numer seryjny' + aiTag + '</label><input id="inpSN" value="' + esc(state.form.sn) + '"></div>';
 
-  html += '<div class="field typfieldwrap" id="typFieldWrap"><label>Typ jednostki</label>';
-  html += '<div class="typegrid">';
-  html += '<div class="typcol"><div class="typcolhead">Wewnętrzna</div>' +
-    TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_wew')?' sel':'') + '" data-t="' + g.key + '_wew">' + g.label + '</button>').join('') +
+  html += '<div class="field typfieldwrap" id="typFieldWrap"><label>Typ urządzenia</label>';
+  html += '<div class="typtopgrid" id="typTopGrid">' +
+    TYP_TOP_CATEGORIES.map(c => '<button type="button" class="typtopbtn' + (typTopCategoryOf(formTyp)===c.key?' sel':'') + '" data-topcat="' + c.key + '">' + esc(c.label) + '</button>').join('') +
   '</div>';
-  html += '<div class="typcol"><div class="typcolhead zew">Zewnętrzna</div>' +
-    TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_zew')?' sel':'') + '" data-t="' + g.key + '_zew">' + g.label + '</button>').join('') +
-  '</div>';
-  html += '</div>';
-  html += '<button type="button" class="typeinne' + (formTyp==='inne'?' sel':'') + '" data-t="inne">Inne (bez podziału wew/zew)</button>';
+  html += '<div id="klimaGridWrap">' + (typTopCategoryOf(formTyp)==='klima' ? klimaGridHtml() : '') + '</div>';
   html += '</div>';
   if(usesSystemTag(formTyp)){
     html += '<div class="field" id="systemFieldWrap"><label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '"></div>';
@@ -1727,6 +1780,41 @@ function renderDodajTabInner(){
   html += '<input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">';
   html += '<input type="file" id="galInput" accept="image/*" style="display:none">';
   return html;
+}
+// Siatka Split/Multi/VRF × Wew/Zew — widoczna tylko pod kategorią nadrzędną
+// "Klimatyzacja". Wydzielona osobno, żeby dało się ją wstawiać/usuwać
+// dynamicznie przy zmianie kategorii, bez pełnego render() (patrz niżej).
+function klimaGridHtml(){
+  return '<div class="typegrid">' +
+    '<div class="typcol"><div class="typcolhead">Wewnętrzna</div>' +
+      TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_wew')?' sel':'') + '" data-t="' + g.key + '_wew">' + g.label + '</button>').join('') +
+    '</div>' +
+    '<div class="typcol"><div class="typcolhead zew">Zewnętrzna</div>' +
+      TYP_GROUPS.map(g => '<button type="button" class="typebtn' + (formTyp===(g.key+'_zew')?' sel':'') + '" data-t="' + g.key + '_zew">' + g.label + '</button>').join('') +
+    '</div>' +
+  '</div>';
+}
+function bindTypLeafButtons(root){
+  root.querySelectorAll('#klimaGridWrap .typebtn').forEach(b => {
+    b.addEventListener('click', () => {
+      formTyp = b.dataset.t;
+      root.querySelectorAll('#klimaGridWrap .typebtn').forEach(x => x.classList.remove('sel'));
+      b.classList.add('sel');
+      updateSystemFieldVisibility(root);
+      updateRefrigFieldsVisibility(root);
+    });
+  });
+}
+function updateKlimaGridVisibility(root){
+  const wrap = root.querySelector('#klimaGridWrap');
+  if(!wrap) return;
+  const needed = typTopCategoryOf(formTyp) === 'klima';
+  if(needed && !wrap.firstElementChild){
+    wrap.innerHTML = klimaGridHtml();
+    bindTypLeafButtons(root);
+  } else if(!needed && wrap.firstElementChild){
+    wrap.innerHTML = '';
+  }
 }
 // Wstawia/usuwa pole System bez pełnego render() — inaczej stracilibyśmy to,
 // co serwisant już wpisał w Producenta/Model/SN/Lokalizację/Uwagi w tym momencie.
@@ -1788,6 +1876,8 @@ function updateRefrigFieldsVisibility(root){
 
 function bindDodajTab(root){
   root.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
+  const retryBtn = root.querySelector('#btnRetryAnalyze');
+  if(retryBtn) retryBtn.addEventListener('click', retryAnalyze);
   if(root.querySelector('#refrigFieldsGroup')){
     bindRefrigFields(root);
     updateCo2Live(root);
@@ -1808,11 +1898,27 @@ function bindDodajTab(root){
   if(cam) cam.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
   if(gal) gal.addEventListener('change', e => { onPhotoChosen(e.target.files[0]); e.target.value=''; });
 
-  root.querySelectorAll('.typebtn, .typeinne').forEach(b => {
+  const camInneQuick = root.querySelector('#innePhotoCamInputQuick');
+  const galInneQuick = root.querySelector('#innePhotoGalInputQuick');
+  const btnCamInneQuick = root.querySelector('#btnCamInneQuick');
+  const btnGalInneQuick = root.querySelector('#btnGalInneQuick');
+  if(btnCamInneQuick) btnCamInneQuick.addEventListener('click', () => camInneQuick.click());
+  if(btnGalInneQuick) btnGalInneQuick.addEventListener('click', () => galInneQuick.click());
+  if(camInneQuick) camInneQuick.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
+  if(galInneQuick) galInneQuick.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
+
+  bindTypLeafButtons(root);
+  root.querySelectorAll('.typtopbtn').forEach(b => {
     b.addEventListener('click', () => {
-      formTyp = b.dataset.t;
-      root.querySelectorAll('.typebtn, .typeinne').forEach(x => x.classList.remove('sel'));
+      const cat = b.dataset.topcat;
+      root.querySelectorAll('.typtopbtn').forEach(x => x.classList.remove('sel'));
       b.classList.add('sel');
+      if(cat === 'klima'){
+        if(typTopCategoryOf(formTyp) !== 'klima') formTyp = 'split_wew';
+      } else {
+        formTyp = cat;
+      }
+      updateKlimaGridVisibility(root);
       updateSystemFieldVisibility(root);
       updateRefrigFieldsVisibility(root);
     });

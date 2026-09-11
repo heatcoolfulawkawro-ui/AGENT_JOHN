@@ -665,6 +665,13 @@ function doGet(e) {
     if (action === 'get_wizyta') {
       const w = getWizyta(e.parameter.id);
       if (!w) return jsonOut({ ok: false, error: 'Nie znaleziono wizyty' });
+      // Wizyty założone przed FolderId dostają go tutaj od razu, przy otwarciu —
+      // inaczej link "otwórz na Dysku" czekałby na pierwsze zdjęcie tej wizyty.
+      if (!w.folderId) {
+        const folder = getWizytaFolder(w);
+        w.folderId = folder.getId();
+        w.folderUrl = folder.getUrl();
+      }
       w.urzadzenia = listUrzadzenia(e.parameter.id);
       w.zdjeciaInne = listZdjeciaInne(e.parameter.id);
       return jsonOut({ ok: true, data: w });
