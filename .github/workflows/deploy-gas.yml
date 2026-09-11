@@ -1,0 +1,42 @@
+name: Deploy Apps Script backend
+
+# Odpala się automatycznie za każdym razem, gdy Code.gs zmieni się na main —
+# wtedy Claude nie musi już prosić Pawła o ręczne wklejanie i redeploy w
+# edytorze Apps Script. Wymaga jednorazowej konfiguracji dwóch sekretów
+# repo (CLASP_CREDENTIALS, GAS_DEPLOYMENT_ID) — patrz opis w rozmowie z
+# Claude, gdzie te kroki są wyjaśnione krok po kroku.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Code.gs'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp@latest
+
+      - name: Restore clasp login credentials
+        run: echo "$CLASP_CREDENTIALS" > ~/.clasprc.json
+        env:
+          CLASP_CREDENTIALS: ${{ secrets.CLASP_CREDENTIALS }}
+
+      - name: Push Code.gs to Apps Script
+        run: clasp push -f
+
+      # --deploymentId jest tu celowo obowiązkowe: bez niego clasp tworzy
+      # NOWE wdrożenie (nowy URL) zamiast zaktualizować istniejące — dokładnie
+      # ten błąd, który wcześniej powodował "Failed to fetch" w appce.
+      - name: Deploy new version to the existing web app (same URL)
+        run: clasp deploy --deploymentId "$GAS_DEPLOYMENT_ID" --description "auto-deploy $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        env:
+          GAS_DEPLOYMENT_ID: ${{ secrets.GAS_DEPLOYMENT_ID }}
