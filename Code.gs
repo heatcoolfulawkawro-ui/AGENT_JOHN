@@ -22,8 +22,14 @@
  *        zewnętrznej, do której przypięta jest wewnętrzna), imageBase64 (opcjonalnie nowe zdjęcie)}
  *  POST {action:'delete_urzadzenie', id}
  *  POST {action:'reorder_urzadzenia', wizytaId, orderedIds:[...]}
- *  POST {action:'add_zdjecie', urzadzenieId, imageBase64, mimeType}   (zdjęcie dodatkowe, bez odczytu AI)
+ *  POST {action:'add_zdjecie', urzadzenieId, imageBase64, mimeType}   (zdjęcie dodatkowe do urządzenia, bez odczytu AI)
  *  POST {action:'delete_zdjecie', id}
+ *  POST {action:'add_zdjecie_inne', wizytaId, imageBase64, mimeType}  (zdjęcie wizyty — montaż, awaria,
+ *        materiały — nieprzypięte do konkretnego urządzenia, ląduje w podfolderze "Inne")
+ *  POST {action:'delete_zdjecie_inne', id}
+ *
+ * Zdjęcia na Dysku trafiają do: HVAC Notatki / {Klient} / {Obiekt} — {data} / {Wewnętrzne|Zewnętrzne|Inne}.
+ * Link do tego folderu (folderUrl) wraca w danych wizyty (create_wizyta, get_wizyta, list_wizyty).
  */
 
 // Musi być identyczne z TOKEN w index.html — bariera przed wywołaniem /exec
@@ -64,7 +70,11 @@ function getSheet(name) {
 }
 function getWizytySheet() {
   const s = getSheet('Wizyty');
-  if (s.getLastRow() === 0) s.appendRow(['ID', 'Klient', 'Obiekt', 'Status', 'DataUtworzenia', 'DataAktywnosci', 'DataZakonczenia']);
+  if (s.getLastRow() === 0) {
+    s.appendRow(['ID', 'Klient', 'Obiekt', 'Status', 'DataUtworzenia', 'DataAktywnosci', 'DataZakonczenia', 'FolderId']);
+  } else if (s.getLastColumn() < 8) {
+    s.getRange(1, 8).setValue('FolderId');
+  }
   return s;
 }
 function getUrzadzeniaSheet() {
@@ -85,7 +95,11 @@ function getUrzadzeniaSheet() {
 
 // ============ WIZYTY ============
 function rowToWizyta(r) {
-  return { id: r[0], klient: r[1], obiekt: r[2], status: r[3], dataUtworzenia: r[4], dataAktywnosci: r[5], dataZakonczenia: r[6] };
+  const folderId = r[7] || '';
+  return {
+    id: r[0], klient: r[1], obiekt: r[2], status: r[3], dataUtworzenia: r[4], dataAktywnosci: r[5], dataZakonczenia: r[6],
+    folderId: folderId, folderUrl: folderId ? ('https://drive.google.com/drive/folders/' + folderId) : ''
+  };
 }
 
 function listWizyty(status) {
@@ -134,8 +148,14 @@ function createWizyta(klient, obiekt) {
   if (!klient || !obiekt) throw new Error('Podaj klienta i obiekt');
   const id = newId('w');
   const ts = nowStr();
-  getWizytySheet().appendRow([id, klient, obiekt, 'w_toku', ts, ts, '']);
-  return { id: id, klient: klient, obiekt: obiekt, status: 'w_toku', dataUtworzenia: ts, dataAktywnosci: ts, liczbaUrzadzen: 0 };
+  // Folder na Dysku zakładamy od razu, żeby appka miała gotowy link do niego
+  // (przycisk "otwórz na Dysku" w Liście) zanim jeszcze powstanie pierwsze zdjęcie.
+  const folder = createWizytaFolderStructure(klient, obiekt, ts);
+  getWizytySheet().appendRow([id, klient, obiekt, 'w_toku', ts, ts, '', folder.getId()]);
+  return {
+    id: id, klient: klient, obiekt: obiekt, status: 'w_toku', dataUtworzenia: ts, dataAktywnosci: ts, liczbaUrzadzen: 0,
+    folderId: folder.getId(), folderUrl: folder.getUrl()
+  };
 }
 
 function finishWizyta(id) {
@@ -206,25 +226,20 @@ function listZdjeciaByUrzadzenie() {
   }
   return byUrz;
 }
-// Ten sam folder co tabliczka (Klient/Obiekt-data) — celowo, żeby wszystkie
-// zdjęcia jednego urządzenia leżały razem. Nazwa pliku dostaje sufiks z
-// godziną, bo w odróżnieniu od tabliczki może być ich wiele na urządzenie.
+// Ten sam podfolder (Wewnętrzne/Zewnętrzne) co tabliczka danego urządzenia —
+// celowo, żeby wszystkie zdjęcia jednego urządzenia leżały razem. Nazwa pliku
+// dostaje sufiks z godziną, bo w odróżnieniu od tabliczki może być ich wiele
+// na urządzenie.
 function saveZdjecieDodatkowe(wizyta, dane, base64, mimeType) {
-  const root = getOrCreateFolder(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
-  const klientFolder = getOrCreateFolder(root, wizyta.klient);
-  const dataKrotka = Utilities.formatDate(new Date(wizyta.dataUtworzenia), 'Europe/Warsaw', 'yyyy-MM-dd');
-  const obiektFolder = getOrCreateFolder(klientFolder, wizyta.obiekt + ' — ' + dataKrotka);
+  const folder = getWizytaFolder(wizyta);
+  const subfolder = getOrCreateFolder(folder, isZewTypServer(dane.typ) ? SUBFOLDER_ZEW : SUBFOLDER_WEW);
 
   const ext = (mimeType && mimeType.indexOf('png') >= 0) ? 'png' : 'jpg';
   const opis = [dane.lokalizacja, dane.producent, dane.model].filter(x => x).join(' - ');
   const stamp = Utilities.formatDate(new Date(), 'Europe/Warsaw', 'HHmmss');
   const fileName = sanitizeName(opis || 'urzadzenie') + ' - dodatkowe ' + stamp + '.' + ext;
 
-  const bytes = Utilities.base64Decode(base64);
-  const blob = Utilities.newBlob(bytes, mimeType || 'image/jpeg', fileName);
-  const file = obiektFolder.createFile(blob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { url: file.getUrl(), fileId: file.getId() };
+  return saveFileToDrive(subfolder, fileName, base64, mimeType);
 }
 function addZdjecie(data) {
   if (!data.imageBase64) throw new Error('Brak zdjęcia');
@@ -239,7 +254,7 @@ function addZdjecie(data) {
   if (!wizyta) throw new Error('Nie znaleziono wizyty');
   if (wizyta.status !== 'w_toku') throw new Error('Ta wizyta jest już zakończona');
 
-  const dane = { lokalizacja: urzRow[7], producent: urzRow[3], model: urzRow[4] };
+  const dane = { lokalizacja: urzRow[7], producent: urzRow[3], model: urzRow[4], typ: urzRow[6] };
   const foto = saveZdjecieDodatkowe(wizyta, dane, data.imageBase64, data.mimeType);
   const id = newId('z');
   const ts = nowStr();
@@ -249,6 +264,59 @@ function addZdjecie(data) {
 }
 function deleteZdjecie(id) {
   const sheet = getZdjeciaSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ============ ZDJĘCIA "INNE" (montaż, awarie, materiały — nie przypięte do ============
+// ============ konkretnego urządzenia, tylko do całej wizyty) ============
+function getZdjeciaInneSheet() {
+  const s = getSheet('ZdjeciaInne');
+  if (s.getLastRow() === 0) s.appendRow(['ID', 'WizytaId', 'Url', 'FileId', 'DataUtworzenia']);
+  return s;
+}
+function rowToZdjecieInne(r) {
+  return { id: r[0], wizytaId: r[1], url: r[2], fileId: r[3], dataUtworzenia: r[4] };
+}
+function listZdjeciaInne(wizytaId) {
+  const rows = getZdjeciaInneSheet().getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i][0]) continue;
+    if (String(rows[i][1]) !== String(wizytaId)) continue;
+    out.push(rowToZdjecieInne(rows[i]));
+  }
+  return out;
+}
+function saveZdjecieInne(wizyta, base64, mimeType) {
+  const folder = getWizytaFolder(wizyta);
+  const subfolder = getOrCreateFolder(folder, SUBFOLDER_INNE);
+  const ext = (mimeType && mimeType.indexOf('png') >= 0) ? 'png' : 'jpg';
+  const stamp = Utilities.formatDate(new Date(), 'Europe/Warsaw', 'yyyy-MM-dd HHmmss');
+  const fileName = 'inne ' + stamp + '.' + ext;
+  return saveFileToDrive(subfolder, fileName, base64, mimeType);
+}
+function addZdjecieInne(data) {
+  if (!data.imageBase64) throw new Error('Brak zdjęcia');
+  const wizyta = getWizyta(data.wizytaId);
+  if (!wizyta) throw new Error('Nie znaleziono wizyty');
+  if (wizyta.status !== 'w_toku') throw new Error('Ta wizyta jest już zakończona');
+
+  const foto = saveZdjecieInne(wizyta, data.imageBase64, data.mimeType);
+  const id = newId('zi');
+  const ts = nowStr();
+  getZdjeciaInneSheet().appendRow([id, data.wizytaId, foto.url, foto.fileId, ts]);
+  touchWizyta(data.wizytaId);
+  return { id: id, wizytaId: data.wizytaId, url: foto.url, fileId: foto.fileId, dataUtworzenia: ts };
+}
+function deleteZdjecieInne(id) {
+  const sheet = getZdjeciaInneSheet();
   const rows = sheet.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][0]) === String(id)) {
@@ -315,25 +383,71 @@ function getOrCreateFolder(parent, name) {
   return parent.createFolder(name);
 }
 
-// Ścieżka: HVAC Notatki / {Klient} / {Obiekt} — {data wizyty} / plik nazwany po lokalizacji + urządzeniu
+// ============ FOLDERY NA DYSKU ============
+// Struktura: HVAC Notatki / {Klient} / {Obiekt} — {data wizyty} / {Wewnętrzne|Zewnętrzne|Inne}
+const SUBFOLDER_WEW = 'Wewnętrzne';
+const SUBFOLDER_ZEW = 'Zewnętrzne';
+const SUBFOLDER_INNE = 'Inne';
+
+function isZewTypServer(t) {
+  t = String(t || '');
+  return t === 'zewnetrzna' || /_zew$/.test(t);
+}
+
+function createWizytaFolderStructure(klient, obiekt, dataUtworzenia) {
+  const root = getOrCreateFolder(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+  const klientFolder = getOrCreateFolder(root, klient);
+  const dataKrotka = Utilities.formatDate(new Date(dataUtworzenia), 'Europe/Warsaw', 'yyyy-MM-dd');
+  const folder = getOrCreateFolder(klientFolder, obiekt + ' — ' + dataKrotka);
+  getOrCreateFolder(folder, SUBFOLDER_WEW);
+  getOrCreateFolder(folder, SUBFOLDER_ZEW);
+  getOrCreateFolder(folder, SUBFOLDER_INNE);
+  return folder;
+}
+
+function setWizytaFolderId(wizytaId, folderId) {
+  const sheet = getWizytySheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(wizytaId)) { sheet.getRange(i + 1, 8).setValue(folderId); return; }
+  }
+}
+
+// Zwraca główny folder wizyty (Folder), tworząc go w razie potrzeby. Wizyty
+// założone przed wprowadzeniem FolderId nie mają go jeszcze zapisanego —
+// wtedy odtwarzamy folder po starej ścieżce (Klient/Obiekt-data) i dopisujemy
+// jego ID do arkusza, żeby kolejne wywołania już nie musiały tego robić.
+function getWizytaFolder(wizyta) {
+  if (wizyta.folderId) {
+    try { return DriveApp.getFolderById(wizyta.folderId); } catch (e) { /* przechodzi do odtworzenia niżej */ }
+  }
+  const folder = createWizytaFolderStructure(wizyta.klient, wizyta.obiekt, wizyta.dataUtworzenia);
+  setWizytaFolderId(wizyta.id, folder.getId());
+  return folder;
+}
+
+function saveFileToDrive(folder, fileName, base64, mimeType) {
+  const bytes = Utilities.base64Decode(base64);
+  const blob = Utilities.newBlob(bytes, mimeType || 'image/jpeg', fileName);
+  const file = folder.createFile(blob);
+  // Bez tego miniatury w appce byłyby niewidoczne dla serwisantów niezalogowanych
+  // na konto Google, na które wdrożony jest ten skrypt.
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { url: file.getUrl(), fileId: file.getId() };
+}
+
+// Plik nazwany po lokalizacji + urządzeniu, w podfolderze Wewnętrzne/Zewnętrzne
+// zależnie od typu urządzenia.
 function saveZdjecie(wizyta, dane, base64, mimeType) {
   if (!base64) return { url: '', fileId: '' };
-  const root = getOrCreateFolder(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
-  const klientFolder = getOrCreateFolder(root, wizyta.klient);
-  const dataKrotka = Utilities.formatDate(new Date(wizyta.dataUtworzenia), 'Europe/Warsaw', 'yyyy-MM-dd');
-  const obiektFolder = getOrCreateFolder(klientFolder, wizyta.obiekt + ' — ' + dataKrotka);
+  const folder = getWizytaFolder(wizyta);
+  const subfolder = getOrCreateFolder(folder, isZewTypServer(dane.typ) ? SUBFOLDER_ZEW : SUBFOLDER_WEW);
 
   const ext = (mimeType && mimeType.indexOf('png') >= 0) ? 'png' : 'jpg';
   const opis = [dane.lokalizacja, dane.producent, dane.model, dane.sn].filter(x => x).join(' - ');
   const fileName = sanitizeName(opis || 'urzadzenie') + '.' + ext;
 
-  const bytes = Utilities.base64Decode(base64);
-  const blob = Utilities.newBlob(bytes, mimeType || 'image/jpeg', fileName);
-  const file = obiektFolder.createFile(blob);
-  // Bez tego miniatury w appce byłyby niewidoczne dla serwisantów niezalogowanych
-  // na konto Google, na które wdrożony jest ten skrypt.
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return { url: file.getUrl(), fileId: file.getId() };
+  return saveFileToDrive(subfolder, fileName, base64, mimeType);
 }
 
 function addUrzadzenie(data) {
@@ -406,7 +520,8 @@ function updateUrzadzenie(data) {
         lokalizacja: data.lokalizacja !== undefined ? data.lokalizacja : rows[i][7],
         producent: data.producent !== undefined ? data.producent : rows[i][3],
         model: data.model !== undefined ? data.model : rows[i][4],
-        sn: data.sn !== undefined ? data.sn : rows[i][5]
+        sn: data.sn !== undefined ? data.sn : rows[i][5],
+        typ: data.typ !== undefined ? data.typ : rows[i][6]
       };
       const foto = saveZdjecie(wizyta, merged, data.imageBase64, data.mimeType);
       sheet.getRange(rowNum, 10).setValue(foto.url);
@@ -540,6 +655,7 @@ function doGet(e) {
       const w = getWizyta(e.parameter.id);
       if (!w) return jsonOut({ ok: false, error: 'Nie znaleziono wizyty' });
       w.urzadzenia = listUrzadzenia(e.parameter.id);
+      w.zdjeciaInne = listZdjeciaInne(e.parameter.id);
       return jsonOut({ ok: true, data: w });
     }
     return jsonOut({ ok: false, error: 'Nieznana akcja' });
@@ -563,6 +679,8 @@ function doPost(e) {
     if (action === 'delete_urzadzenie') return jsonOut({ ok: true, deleted: deleteUrzadzenie(body.id) });
     if (action === 'add_zdjecie') return jsonOut({ ok: true, data: addZdjecie(body) });
     if (action === 'delete_zdjecie') return jsonOut({ ok: true, deleted: deleteZdjecie(body.id) });
+    if (action === 'add_zdjecie_inne') return jsonOut({ ok: true, data: addZdjecieInne(body) });
+    if (action === 'delete_zdjecie_inne') return jsonOut({ ok: true, deleted: deleteZdjecieInne(body.id) });
     if (action === 'reorder_urzadzenia') return jsonOut({ ok: true, done: reorderUrzadzenia(body.wizytaId, body.orderedIds || []) });
     return jsonOut({ ok: false, error: 'Nieznana akcja' });
   } catch (err) {

@@ -144,6 +144,9 @@
   .lbopen{ margin-top:14px; color:var(--amber); font-size:12.5px; text-decoration:none; }
 
   .folderpath{ font-size:10.5px; color:var(--ink-dim); margin:2px 0 12px; word-break:break-word; }
+  a.folderlink{ display:block; text-decoration:none; }
+  .folderlinkarrow{ display:block; color:var(--blue); font-size:11.5px; font-weight:600; margin-top:2px; }
+  .innesection{ margin:18px 0; }
 
   .typfieldwrap .typegrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
   .typcol{ background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:8px; display:flex; flex-direction:column; gap:5px; }
@@ -161,7 +164,9 @@
   .extrathumb{ position:relative; width:64px; height:64px; }
   .extrathumb .thumb{ width:64px; height:64px; }
   .extradel{ position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:var(--red); border:2px solid var(--bg); color:#fff; font-size:11px; line-height:1; cursor:pointer; padding:0; }
+  .extraretry{ position:absolute; bottom:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:var(--amber); border:2px solid var(--bg); color:#1c1811; font-size:11px; line-height:1; cursor:pointer; padding:0; }
   .extrapending{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); color:var(--amber); font-size:16px; }
+  .extrathumb.failed .thumb{ outline:2px solid var(--amber); }
   .extraadd{ width:64px; height:64px; border-radius:7px; background:none; border:1px dashed var(--line); color:var(--ink-dim); font-size:22px; font-family:inherit; cursor:pointer; }
 
   .co2live{ margin-bottom:4px; }
@@ -609,11 +614,13 @@ function extraPhotosGridHtml(){
   editingExtraPhotos.forEach(p => {
     const thumbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 150) : '');
     const lbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 1400) : '');
-    html += '<div class="extrathumb">' +
+    html += '<div class="extrathumb' + (p._failed ? ' failed' : '') + '">' +
       '<button type="button" class="thumb lbtrigger" data-lb="' + esc(lbSrc) + '" data-ext="' + esc(p.url || lbSrc) + '">' +
       (thumbSrc ? '<img src="' + esc(thumbSrc) + '" alt="">' : '📦') +
       (p._pending ? '<span class="extrapending">…</span>' : '') +
+      (p._failed ? '<span class="extrapending" title="nie zapisano — stuknij 🔄">⚠️</span>' : '') +
       '</button>';
+    if(p._failed) html += '<button type="button" class="extraretry" data-id="' + esc(p.id) + '" title="Spróbuj ponownie">🔄</button>';
     if(!p._pending) html += '<button type="button" class="extradel" data-id="' + esc(p.id) + '">✕</button>';
     html += '</div>';
   });
@@ -634,35 +641,52 @@ function refreshExtraPhotosGrid(root){
   grid.innerHTML = extraPhotosGridHtml();
   grid.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
   grid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteExtraPhoto(b.dataset.id)));
+  grid.querySelectorAll('.extraretry').forEach(b => b.addEventListener('click', () => retryExtraPhoto(b.dataset.id)));
   const addBtn = grid.querySelector('#btnAddExtraPhoto');
   if(addBtn) addBtn.addEventListener('click', () => document.getElementById('extraInput').click());
+}
+// Zdjęcie od razu ląduje w localStorage (przez syncExtraPhotosToState) razem
+// z base64 — jeśli wysyłka się nie uda (zasięg), zdjęcie zostaje na liście
+// oznaczone jako niezapisane, zamiast znikać. Można je potem ponowić albo
+// skasować ręcznie, ale nigdy nie ginie po cichu.
+async function uploadExtraPhoto(item){
+  item._pending = true; item._failed = false;
+  refreshExtraPhotosGrid();
+  let res;
+  try{
+    res = await apiPost({ action:'add_zdjecie', urzadzenieId: editingId, imageBase64: item._base64, mimeType: item._mimeType });
+  }catch(err){
+    res = { ok:false, error: err.message };
+  }
+  const idx = editingExtraPhotos.findIndex(p => p.id === item.id);
+  if(idx < 0) return; // skasowane w międzyczasie
+  if(res.ok){
+    editingExtraPhotos[idx] = Object.assign({}, res.data, { _localPreview: editingExtraPhotos[idx]._localPreview });
+    showToast('zapisano zdjęcie');
+  } else {
+    editingExtraPhotos[idx] = Object.assign({}, editingExtraPhotos[idx], { _pending:false, _failed:true });
+    showToast('Nie udało się zapisać zdjęcia — zostało na liście, spróbuj ponownie: ' + (res.error || ''), true);
+  }
+  syncExtraPhotosToState();
+  refreshExtraPhotosGrid();
 }
 async function onExtraPhotoChosen(file){
   if(!file || !editingId) return;
   try{
     const picked = await fileToDownscaledBase64(file);
     const tempId = 'localphoto_' + Date.now();
-    editingExtraPhotos.push({ id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _pending: true });
-    refreshExtraPhotosGrid();
-    let res;
-    try{
-      res = await apiPost({ action:'add_zdjecie', urzadzenieId: editingId, imageBase64: picked.base64, mimeType: picked.mimeType });
-    }catch(err){
-      res = { ok:false, error: err.message };
-    }
-    const idx = editingExtraPhotos.findIndex(p => p.id === tempId);
-    if(res.ok && idx > -1){
-      editingExtraPhotos[idx] = res.data;
-      showToast('zapisano zdjęcie');
-    } else if(idx > -1){
-      editingExtraPhotos.splice(idx, 1);
-      showToast('Nie udało się zapisać zdjęcia: ' + (res.error || ''), true);
-    }
+    const item = { id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _base64: picked.base64, _mimeType: picked.mimeType, _pending: true };
+    editingExtraPhotos.push(item);
     syncExtraPhotosToState();
     refreshExtraPhotosGrid();
+    await uploadExtraPhoto(item);
   }catch(err){
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
   }
+}
+function retryExtraPhoto(id){
+  const item = editingExtraPhotos.find(p => p.id === id);
+  if(item) uploadExtraPhoto(item);
 }
 async function deleteExtraPhoto(id){
   if(!confirm('Usunąć to zdjęcie?')) return;
@@ -672,7 +696,7 @@ async function deleteExtraPhoto(id){
   editingExtraPhotos.splice(idx, 1);
   syncExtraPhotosToState();
   refreshExtraPhotosGrid();
-  if(String(id).indexOf('localphoto_') === 0) return; // jeszcze nie zapisane na serwerze
+  if(!removed.fileId) return; // jeszcze nie zapisane na serwerze (localphoto_ albo nieudana próba)
   try{
     const res = await apiPost({action:'delete_zdjecie', id});
     if(!res.ok) throw new Error(res.error || 'Błąd');
@@ -681,6 +705,109 @@ async function deleteExtraPhoto(id){
     editingExtraPhotos.splice(idx, 0, removed);
     syncExtraPhotosToState();
     refreshExtraPhotosGrid();
+    showToast('Nie udało się usunąć: ' + err.message, true);
+  }
+}
+
+// ============ ZDJĘCIA "INNE" (montaż, awaria, materiały — całej wizyty, ============
+// ============ bez powiązania z konkretnym urządzeniem i bez odczytu AI) ============
+function innePhotosGridHtml(){
+  const list = (state.currentWizyta && state.currentWizyta.zdjeciaInne) || [];
+  let html = '';
+  list.forEach(p => {
+    const thumbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 150) : '');
+    const lbSrc = p._localPreview || (p.fileId ? driveThumbUrl(p.fileId, 1400) : '');
+    html += '<div class="extrathumb' + (p._failed ? ' failed' : '') + '">' +
+      '<button type="button" class="thumb lbtrigger" data-lb="' + esc(lbSrc) + '" data-ext="' + esc(p.url || lbSrc) + '">' +
+      (thumbSrc ? '<img src="' + esc(thumbSrc) + '" alt="">' : '📦') +
+      (p._pending ? '<span class="extrapending">…</span>' : '') +
+      (p._failed ? '<span class="extrapending" title="nie zapisano — stuknij 🔄">⚠️</span>' : '') +
+      '</button>';
+    if(p._failed) html += '<button type="button" class="extraretry" data-id="' + esc(p.id) + '" title="Spróbuj ponownie">🔄</button>';
+    if(!state.readonly && !p._pending) html += '<button type="button" class="extradel" data-id="' + esc(p.id) + '">✕</button>';
+    html += '</div>';
+  });
+  if(!state.readonly){
+    html += '<button type="button" class="extraadd" id="btnCamInne" title="Zrób zdjęcie">📷</button>';
+    html += '<button type="button" class="extraadd" id="btnGalInne" title="Z galerii">🖼️</button>';
+  }
+  return html;
+}
+function syncInneToLocalStorage(){ persistLocalUrzadzenia(); }
+function refreshInneGrid(root){
+  const grid = (root || document).querySelector('#innePhotosGrid');
+  if(!grid) return;
+  grid.innerHTML = innePhotosGridHtml();
+  bindInneGrid(grid);
+}
+function bindInneGrid(grid){
+  grid.querySelectorAll('.lbtrigger').forEach(b => b.addEventListener('click', () => openLightbox(b.dataset.lb, b.dataset.ext)));
+  grid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteInnePhoto(b.dataset.id)));
+  grid.querySelectorAll('.extraretry').forEach(b => b.addEventListener('click', () => retryInnePhoto(b.dataset.id)));
+  const camBtn = grid.querySelector('#btnCamInne');
+  const galBtn = grid.querySelector('#btnGalInne');
+  if(camBtn) camBtn.addEventListener('click', () => document.getElementById('innePhotoCamInput').click());
+  if(galBtn) galBtn.addEventListener('click', () => document.getElementById('innePhotoGalInput').click());
+}
+async function uploadInnePhoto(item){
+  item._pending = true; item._failed = false;
+  refreshInneGrid();
+  let res;
+  try{
+    res = await apiPost({ action:'add_zdjecie_inne', wizytaId: state.currentWizyta.id, imageBase64: item._base64, mimeType: item._mimeType });
+  }catch(err){
+    res = { ok:false, error: err.message };
+  }
+  const list = state.currentWizyta.zdjeciaInne || [];
+  const idx = list.findIndex(p => p.id === item.id);
+  if(idx < 0) return;
+  if(res.ok){
+    list[idx] = Object.assign({}, res.data, { _localPreview: list[idx]._localPreview });
+    showToast('zapisano zdjęcie');
+  } else {
+    list[idx] = Object.assign({}, list[idx], { _pending:false, _failed:true });
+    showToast('Nie udało się zapisać zdjęcia — zostało na liście, spróbuj ponownie: ' + (res.error || ''), true);
+  }
+  syncInneToLocalStorage();
+  refreshInneGrid();
+}
+async function onInnePhotoChosen(file){
+  if(!file || !state.currentWizyta || !state.currentWizyta.id) return;
+  try{
+    const picked = await fileToDownscaledBase64(file);
+    const tempId = 'localphoto_' + Date.now();
+    const item = { id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _base64: picked.base64, _mimeType: picked.mimeType, _pending: true };
+    if(!state.currentWizyta.zdjeciaInne) state.currentWizyta.zdjeciaInne = [];
+    state.currentWizyta.zdjeciaInne.push(item);
+    syncInneToLocalStorage();
+    refreshInneGrid();
+    await uploadInnePhoto(item);
+  }catch(err){
+    showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
+  }
+}
+function retryInnePhoto(id){
+  const item = (state.currentWizyta.zdjeciaInne || []).find(p => p.id === id);
+  if(item) uploadInnePhoto(item);
+}
+async function deleteInnePhoto(id){
+  if(!confirm('Usunąć to zdjęcie?')) return;
+  const list = state.currentWizyta.zdjeciaInne || [];
+  const idx = list.findIndex(p => p.id === id);
+  if(idx < 0) return;
+  const removed = list[idx];
+  list.splice(idx, 1);
+  syncInneToLocalStorage();
+  refreshInneGrid();
+  if(!removed.fileId) return;
+  try{
+    const res = await apiPost({action:'delete_zdjecie_inne', id});
+    if(!res.ok) throw new Error(res.error || 'Błąd');
+    showToast('usunięto zdjęcie');
+  }catch(err){
+    list.splice(idx, 0, removed);
+    syncInneToLocalStorage();
+    refreshInneGrid();
     showToast('Nie udało się usunąć: ' + err.message, true);
   }
 }
@@ -734,6 +861,11 @@ async function openWizytaWorkspace(id, readonly){
     const serverList = res.data.urzadzenia || [];
     const pendingLocal = (cached ? cached.urzadzenia : []).filter(u => u._synced === false);
     state.urzadzenia = serverList.concat(pendingLocal);
+    // Zdjęcia "inne" jeszcze niewysłane (np. przerwane przez utratę zasięgu)
+    // przeżywają odświeżenie z serwera tak samo jak niezsynchronizowane urządzenia.
+    const cachedInne = (cached && cached.wizyta && cached.wizyta.zdjeciaInne) || [];
+    const pendingInne = cachedInne.filter(p => p._pending);
+    state.currentWizyta.zdjeciaInne = (state.currentWizyta.zdjeciaInne || []).concat(pendingInne);
     state.workTab = (state.urzadzenia.length > 0 || state.readonly) ? 'lista' : 'dodaj';
     persistLocalUrzadzenia();
     render();
@@ -943,12 +1075,23 @@ function scheduleReorderSync(){
   }, 700);
 }
 
+function pendingInnePhotos(){
+  return ((state.currentWizyta && state.currentWizyta.zdjeciaInne) || []).filter(p => p._failed);
+}
 async function finishProtocol(){
   if(buildRetryQueue().length){
     showToast('Synchronizuję pozostałe wpisy…');
     await retryAllUnsynced();
     if(buildRetryQueue().length){
       alert('Nie udało się zsynchronizować wszystkich wpisów (brak połączenia). Spróbuj ponownie, gdy będzie zasięg.');
+      return;
+    }
+  }
+  if(pendingInnePhotos().length){
+    showToast('Synchronizuję pozostałe zdjęcia…');
+    for(const p of pendingInnePhotos().slice()) await uploadInnePhoto(p);
+    if(pendingInnePhotos().length){
+      alert('Nie udało się zsynchronizować wszystkich zdjęć "Inne" (brak połączenia). Spróbuj ponownie, gdy będzie zasięg.');
       return;
     }
   }
@@ -1417,13 +1560,27 @@ function renderListaTabInner(){
   html += '<div class="counterbar"><div class="cnt"><b>' + state.urzadzenia.length + '</b> urządzeń' + (state.readonly?'':' w tej wizycie') + '</div>' +
     '<div class="sync"><span class="syncdot"></span>' + (queue.length ? 'synchronizuję…' : 'zsynchronizowano') + '</div></div>';
   const fp = folderPathLabel();
-  if(fp) html += '<div class="folderpath">' + esc(fp) + '</div>';
+  const folderUrl = state.currentWizyta && state.currentWizyta.folderUrl;
+  if(fp){
+    html += folderUrl
+      ? '<a class="folderpath folderlink" href="' + esc(folderUrl) + '" target="_blank" rel="noopener">' + esc(fp) + '<span class="folderlinkarrow">📂 otwórz na Dysku ↗</span></a>'
+      : '<div class="folderpath">' + esc(fp) + '</div>';
+  }
   if(!state.readonly && state.urzadzenia.length) html += '<div class="sorthint">strzałki ↑↓ zmieniają kolejność — ułóż np. po numerach pomieszczeń</div>';
 
   if(!state.urzadzenia.length){
     html += '<div class="empty">' + (state.readonly ? 'Brak urządzeń w tym protokole.' : 'Brak urządzeń — dodaj pierwsze w zakładce „Dodaj urządzenie”.') + '</div>';
   } else {
     state.urzadzenia.forEach((u,i) => { html += renderDevCard(u, i, state.urzadzenia.length); });
+  }
+
+  if(state.currentWizyta && state.currentWizyta.id){
+    html += '<div class="innesection"><div class="sectionlbl">📎 Inne zdjęcia (montaż, awaria, materiały)</div>' +
+      '<div class="extragrid" id="innePhotosGrid">' + innePhotosGridHtml() + '</div></div>';
+    if(!state.readonly){
+      html += '<input type="file" id="innePhotoCamInput" accept="image/*" capture="environment" style="display:none">' +
+        '<input type="file" id="innePhotoGalInput" accept="image/*" style="display:none">';
+    }
   }
 
   if(!state.readonly && state.urzadzenia.length > 0){
@@ -1440,6 +1597,12 @@ function bindListaTab(root){
   root.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => deleteEntry(b.dataset.id)));
   const fin = root.querySelector('#btnFinish'); if(fin) fin.addEventListener('click', finishProtocol);
   const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllUnsynced);
+  const innegrid = root.querySelector('#innePhotosGrid');
+  if(innegrid) bindInneGrid(innegrid);
+  const camInne = root.querySelector('#innePhotoCamInput');
+  const galInne = root.querySelector('#innePhotoGalInput');
+  if(camInne) camInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
+  if(galInne) galInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
 }
 
 function renderParyTabInner(){
