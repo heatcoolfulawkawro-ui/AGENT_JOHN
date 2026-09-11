@@ -450,6 +450,15 @@ function saveZdjecie(wizyta, dane, base64, mimeType) {
   return saveFileToDrive(subfolder, fileName, base64, mimeType);
 }
 
+// Sheets potrafi po cichu zinterpretować zwykłą liczbę (np. "14.1") jako
+// datę, jeśli wpisujemy ją jako zwykły string — stąd zamiana na prawdziwy
+// Number przed zapisem, żeby ilość czynnika w kg nie zamieniła się w datę.
+function toNumOrEmpty(v) {
+  if (v === undefined || v === null || v === '') return '';
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isNaN(n) ? '' : n;
+}
+
 function addUrzadzenie(data) {
   const wizyta = getWizyta(data.wizytaId);
   if (!wizyta) throw new Error('Nie znaleziono wizyty');
@@ -473,17 +482,19 @@ function addUrzadzenie(data) {
     const kolejnosc = data.kolejnosc || nextKolejnosc(data.wizytaId);
     const foto = saveZdjecie(wizyta, data, data.imageBase64, data.mimeType);
     const ts = nowStr();
+    const czynnikFab = toNumOrEmpty(data.czynnikFabryczny);
+    const czynnikDod = toNumOrEmpty(data.czynnikDodatkowy);
     getUrzadzeniaSheet().appendRow([
       id, data.wizytaId, kolejnosc, data.producent || '', data.model || '', data.sn || '',
       data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts, data.system || '', data.parujZId || '',
-      data.czynnik || '', data.czynnikFabryczny || '', data.czynnikDodatkowy || '', data.clientId || ''
+      data.czynnik || '', czynnikFab, czynnikDod, data.clientId || ''
     ]);
     touchWizyta(data.wizytaId);
     return {
       id: id, wizytaId: data.wizytaId, kolejnosc: kolejnosc, producent: data.producent || '', model: data.model || '',
       sn: data.sn || '', typ: data.typ || '', lokalizacja: data.lokalizacja || '', uwagi: data.uwagi || '',
       zdjecieUrl: foto.url, zdjecieFileId: foto.fileId, dataUtworzenia: ts, system: data.system || '', parujZId: data.parujZId || '',
-      czynnik: data.czynnik || '', czynnikFabryczny: data.czynnikFabryczny || '', czynnikDodatkowy: data.czynnikDodatkowy || '',
+      czynnik: data.czynnik || '', czynnikFabryczny: czynnikFab, czynnikDodatkowy: czynnikDod,
       clientId: data.clientId || ''
     };
   } finally {
@@ -512,8 +523,8 @@ function updateUrzadzenie(data) {
     if (data.system !== undefined) sheet.getRange(rowNum, 13).setValue(data.system);
     if (data.parujZId !== undefined) sheet.getRange(rowNum, 14).setValue(data.parujZId);
     if (data.czynnik !== undefined) sheet.getRange(rowNum, 15).setValue(data.czynnik);
-    if (data.czynnikFabryczny !== undefined) sheet.getRange(rowNum, 16).setValue(data.czynnikFabryczny);
-    if (data.czynnikDodatkowy !== undefined) sheet.getRange(rowNum, 17).setValue(data.czynnikDodatkowy);
+    if (data.czynnikFabryczny !== undefined) sheet.getRange(rowNum, 16).setValue(toNumOrEmpty(data.czynnikFabryczny));
+    if (data.czynnikDodatkowy !== undefined) sheet.getRange(rowNum, 17).setValue(toNumOrEmpty(data.czynnikDodatkowy));
 
     if (data.imageBase64) {
       const merged = {
