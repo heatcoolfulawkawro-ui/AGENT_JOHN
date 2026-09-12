@@ -284,7 +284,21 @@ function typLabel(t){
   return t;
 }
 function isZewTyp(t){ return t==='zewnetrzna' || /_zew$/.test(t||''); }
-function usesSystemTag(t){ return /^(multi|vrf)_/.test(t||''); }
+// Agregaty wody lodowej trzymają czynnik/ilość i licznik CO2e/CRO tak samo jak
+// jednostki zewnętrzne Split/Multi/VRF, ale NIE wchodzą do parowania Wew/Zew w
+// zakładce Pary (chłodzą przez obieg wodny, nie parują 1:1 z jednostką
+// wewnętrzną) — stąd osobna funkcja zamiast poszerzania isZewTyp.
+function hasRefrigCharge(t){ return isZewTyp(t) || typTopCategoryOf(t)==='chiller'; }
+// Multi/VRF: numer systemu (S1, M2...). Agregat wody lodowej z kilkoma
+// niezależnymi obiegami: każdy obieg to osobny wpis urządzenia (⧉ Duplikuj +
+// zmień ilość czynnika), a to pole tylko je podpisuje jako "Układ 1"/"Układ 2" —
+// bo każdy obieg ma swój własny, niezależny limit CRO, nie sumuje się ich.
+function usesSystemTag(t){ return /^(multi|vrf)_/.test(t||'') || typTopCategoryOf(t)==='chiller'; }
+function systemFieldInfo(t){
+  return typTopCategoryOf(t)==='chiller'
+    ? { label:'Układ chłodniczy (jeśli agregat ma kilka niezależnych obiegów)', placeholder:'np. Układ 1, Układ 2' }
+    : { label:'System (Multi/VRF)', placeholder:'np. S1, M2' };
+}
 
 // ============ CZYNNIK CHŁODNICZY: GWP / CO2e / próg CRO ============
 // Wartości GWP wg IPCC AR4 (100-letni horyzont) — to jest podstawa prawna
@@ -1242,7 +1256,7 @@ function buildWorkbook(){
     ['Lp', 'Lokalizacja', 'Typ', 'Producent', 'Model', 'SN', 'Czynnik', 'Suma czynnika (kg)', 't CO₂-eq', 'CRO', 'Uwagi']
   ];
   state.urzadzenia.forEach((u, i) => {
-    const info = isZewTyp(u.typ) ? co2eqInfo(u) : null;
+    const info = hasRefrigCharge(u.typ) ? co2eqInfo(u) : null;
     rows.push([
       i + 1, u.lokalizacja || '', typLabel(u.typ), u.producent || '', u.model || '', u.sn || '',
       info ? normalizeCzynnik(u.czynnik) : '',
@@ -1662,7 +1676,7 @@ function renderDevCard(u, idx, total, numbers){
   if(u.uwagi) html += '<div class="uwagiline">📝 ' + esc(u.uwagi) + '</div>';
   html += pairInfoLine(u);
   if(!orientInfo && u.typ) html += '<span class="tag">' + esc(typLabel(u.typ)) + '</span>';
-  if(isZewTyp(u.typ)) html += co2eqBadgeHtml(u);
+  if(hasRefrigCharge(u.typ)) html += co2eqBadgeHtml(u);
   html += '</div>';
   if(!state.readonly){
     html += '<div class="acts">' +
@@ -1811,9 +1825,10 @@ function renderDodajTabInner(){
   html += typSelectHtml(formTyp);
   html += '</div>';
   if(usesSystemTag(formTyp)){
-    html += '<div class="field" id="systemFieldWrap"><label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '"></div>';
+    const sysInfo = systemFieldInfo(formTyp);
+    html += '<div class="field" id="systemFieldWrap"><label>' + esc(sysInfo.label) + '</label><input id="inpSystem" placeholder="' + esc(sysInfo.placeholder) + '" value="' + esc(state.form.system||'') + '"></div>';
   }
-  if(isZewTyp(formTyp)){
+  if(hasRefrigCharge(formTyp)){
     html += refrigFieldsGroupHtml();
   }
 
@@ -1877,14 +1892,21 @@ function bindTypSelect(root){
 function updateSystemFieldVisibility(root){
   const existing = root.querySelector('#systemFieldWrap');
   const needed = usesSystemTag(formTyp);
+  const sysInfo = systemFieldInfo(formTyp);
   if(needed && !existing){
     const wrap = document.createElement('div');
     wrap.className = 'field';
     wrap.id = 'systemFieldWrap';
-    wrap.innerHTML = '<label>System (Multi/VRF)</label><input id="inpSystem" placeholder="np. S1, M2" value="' + esc(state.form.system||'') + '">';
+    wrap.innerHTML = '<label>' + esc(sysInfo.label) + '</label><input id="inpSystem" placeholder="' + esc(sysInfo.placeholder) + '" value="' + esc(state.form.system||'') + '">';
     root.querySelector('#typFieldWrap').insertAdjacentElement('afterend', wrap);
   } else if(!needed && existing){
     existing.remove();
+  } else if(needed && existing){
+    // Pole już tam jest (np. przeskok multi_wew -> chiller -> vrf_zew bez
+    // usuwania po drodze) — samo pole zostaje, ale etykieta/placeholder muszą
+    // się zgadzać z aktualną kategorią, inaczej zostaje napis z poprzedniej.
+    existing.querySelector('label').textContent = sysInfo.label;
+    existing.querySelector('#inpSystem').placeholder = sysInfo.placeholder;
   }
 }
 
@@ -1916,7 +1938,7 @@ function bindRefrigFields(root){
 }
 function updateRefrigFieldsVisibility(root){
   const existing = root.querySelector('#refrigFieldsGroup');
-  const needed = isZewTyp(formTyp);
+  const needed = hasRefrigCharge(formTyp);
   if(needed && !existing){
     const wrap = document.createElement('div');
     wrap.innerHTML = refrigFieldsGroupHtml();
