@@ -459,7 +459,8 @@ function pairInfoLine(u){
   }
   if(u.parujZId){
     const parent = state.urzadzenia.find(x => x.id === u.parujZId);
-    return '<div class="pairline">🔗 sparowana: ' + (parent ? esc(parent.lokalizacja || devShortLabel(parent)) : '(agregat spoza listy)') + '</div>';
+    const pending = u._parujPending ? ' <span style="color:var(--amber)" title="przypisanie niezsynchronizowane">⏳</span>' : '';
+    return '<div class="pairline">🔗 sparowana: ' + (parent ? esc(parent.lokalizacja || devShortLabel(parent)) : '(agregat spoza listy)') + pending + '</div>';
   }
   return '';
 }
@@ -513,9 +514,24 @@ async function setParowanie(indoorId, outdoorId){
   try{
     const res = await apiPost({action:'update_urzadzenie', id: indoorId, parujZId: outdoorId || ''});
     if(!res.ok) throw new Error(res.error || 'Błąd');
+    const iOk = state.urzadzenia.findIndex(u => u.id === indoorId);
+    if(iOk > -1 && state.urzadzenia[iOk]._parujPending){
+      state.urzadzenia[iOk] = Object.assign({}, state.urzadzenia[iOk], { _parujPending: false });
+      persistLocalUrzadzenia();
+    }
     showToast('zapisano przypisanie');
   }catch(err){
-    showToast('Nie udało się zapisać przypisania: ' + err.message, true);
+    // W przeciwieństwie do głównego zapisu urządzenia (który ma kolejkę
+    // ponowień po _synced), to przypisanie leciało od razu — bez tego
+    // oflagowania nieudana próba ginie bezpowrotnie: klient dalej pokazuje
+    // sparowanie lokalnie, ale serwer nigdy go nie dostał. _parujPending
+    // wciąga tę zmianę do tej samej kolejki "Spróbuj ponownie".
+    const iErr = state.urzadzenia.findIndex(u => u.id === indoorId);
+    if(iErr > -1){
+      state.urzadzenia[iErr] = Object.assign({}, state.urzadzenia[iErr], { _parujPending: true });
+      persistLocalUrzadzenia();
+    }
+    showToast('Brak połączenia — spróbuję zapisać przypisanie ponownie automatycznie', true);
   }
 }
 
@@ -997,8 +1013,19 @@ async function openWizytaWorkspace(id, readonly){
     if(!res.ok) throw new Error(res.error || 'Błąd odczytu');
     state.currentWizyta = res.data;
     const serverList = res.data.urzadzenia || [];
-    const pendingLocal = (cached ? cached.urzadzenia : []).filter(u => u._synced === false);
-    state.urzadzenia = serverList.concat(pendingLocal);
+    const cachedList = cached ? cached.urzadzenia : [];
+    const pendingLocal = cachedList.filter(u => u._synced === false);
+    // Przypisanie (parujZId) na urządzeniu, które było już zsynchronizowane,
+    // leci od razu przy zapisie (setParowanie), nie przez tę kolejkę — jeśli
+    // ta próba akurat zawiodła, świeże dane z serwera nadpiszą urządzenie i
+    // zgubią zarówno flagę _parujPending, jak i samo (jeszcze niewysłane na
+    // serwer) przypisanie. Trzeba je jawnie przenieść ze starej kopii.
+    const cachedById = {};
+    cachedList.forEach(u => { cachedById[u.id] = u; });
+    state.urzadzenia = serverList.concat(pendingLocal).map(u => {
+      const c = cachedById[u.id];
+      return (c && c._parujPending) ? Object.assign({}, u, { parujZId: c.parujZId, _parujPending: true }) : u;
+    });
     // Zdjęcia "inne" jeszcze niewysłane (np. przerwane przez utratę zasięgu)
     // przeżywają odświeżenie z serwera tak samo jak niezsynchronizowane urządzenia.
     const cachedInne = (cached && cached.wizyta && cached.wizyta.zdjeciaInne) || [];
@@ -1008,6 +1035,7 @@ async function openWizytaWorkspace(id, readonly){
     persistLocalUrzadzenia();
     render();
     if(pendingLocal.length) retryAllUnsynced();
+    if(state.urzadzenia.some(u => u._parujPending)) retryPendingParowania();
   }catch(err){
     if(cached){
       state.workTab = (state.urzadzenia.length > 0 || state.readonly) ? 'lista' : 'dodaj';
@@ -1024,6 +1052,29 @@ function exitWorkspace(){
 
 // ============ SYNCHRONIZACJA WPISÓW ============
 function buildRetryQueue(){ return state.urzadzenia.filter(u => u._synced === false); }
+function buildParowaniaRetryQueue(){ return state.urzadzenia.filter(u => u._parujPending === true); }
+
+async function retryPendingParowania(){
+  const queue = buildParowaniaRetryQueue();
+  for(const u of queue){
+    try{
+      const res = await apiPost({action:'update_urzadzenie', id: u.id, parujZId: u.parujZId || ''});
+      if(!res.ok) throw new Error(res.error || 'Błąd zapisu');
+      const i = state.urzadzenia.findIndex(x => x.id === u.id);
+      if(i > -1) state.urzadzenia[i] = Object.assign({}, state.urzadzenia[i], { _parujPending: false });
+      persistLocalUrzadzenia();
+    }catch(err){
+      // zostaje oflagowane — dogoni przy kolejnej okazji (otwarcie wizyty
+      // albo znowu "Spróbuj ponownie")
+    }
+  }
+  render();
+}
+
+async function retryAllPending(){
+  await retryAllUnsynced();
+  await retryPendingParowania();
+}
 
 async function trySyncEntry(id, payload){
   const isEdit = !isLocalOnlyId(id);
@@ -1692,15 +1743,15 @@ function renderDevCard(u, idx, total, numbers){
 
 function renderListaTabInner(){
   let html = '';
-  const queue = buildRetryQueue();
-  if(queue.length && !state.readonly){
+  const pendingCount = buildRetryQueue().length + buildParowaniaRetryQueue().length;
+  if(pendingCount && !state.readonly){
     html += '<div class="err" style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
-      '<span>' + queue.length + ' wpis(ów) niezsynchronizowanych</span>' +
+      '<span>' + pendingCount + ' wpis(ów) niezsynchronizowanych</span>' +
       '<button id="btnRetry" style="background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 10px;font-size:11.5px;font-family:inherit;cursor:pointer">Spróbuj ponownie</button>' +
     '</div>';
   }
   html += '<div class="counterbar"><div class="cnt"><b>' + state.urzadzenia.length + '</b> urządzeń' + (state.readonly?'':' w tej wizycie') + '</div>' +
-    '<div class="sync"><span class="syncdot"></span>' + (queue.length ? 'synchronizuję…' : 'zsynchronizowano') + '</div></div>';
+    '<div class="sync"><span class="syncdot"></span>' + (pendingCount ? 'synchronizuję…' : 'zsynchronizowano') + '</div></div>';
   const fp = folderPathLabel();
   const folderUrl = state.currentWizyta && state.currentWizyta.folderUrl;
   if(fp){
@@ -1730,7 +1781,7 @@ function bindListaTab(root){
   root.querySelectorAll('.dup').forEach(b => b.addEventListener('click', () => duplicateEntry(b.dataset.id)));
   root.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => deleteEntry(b.dataset.id)));
   const fin = root.querySelector('#btnFinish'); if(fin) fin.addEventListener('click', finishProtocol);
-  const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllUnsynced);
+  const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllPending);
 }
 
 function renderParyTabInner(){
