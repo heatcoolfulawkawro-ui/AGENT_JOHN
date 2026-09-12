@@ -139,6 +139,8 @@
   .tabbar button.active{ color:var(--amber); }
 
   .err{ color:var(--red); font-size:12px; margin:0 0 10px; background:#2a1614; border:1px solid #4a2c28; border-radius:8px; padding:9px 11px; }
+  .gallerysavebar{ display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--amber); background:#2a2410; border:1px solid #4a3f1a; border-radius:9px; padding:9px 12px; margin:10px 16px 0; font-size:12px; }
+  .gallerysavebar button{ background:var(--amber); border:none; color:#1c1811; font-weight:700; border-radius:7px; padding:7px 14px; font-size:12px; font-family:inherit; cursor:pointer; flex-shrink:0; }
   .empty{ color:var(--ink-dim); font-size:13px; text-align:center; padding:26px 10px; }
 
   .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--bg); background:var(--green); padding:8px 15px; border-radius:9px; z-index:50; font-weight:600; opacity:0; pointer-events:none; transition:opacity .25s; max-width:88vw; text-align:center; box-shadow:0 8px 20px -6px #000a; }
@@ -555,6 +557,41 @@ let analyzing = false;
 let analyzeError = '';
 let editingExtraPhotos = []; // zdjęcia dodatkowe aktualnie edytowanego urządzenia (bez odczytu AI)
 
+// Zabezpieczenie na wypadek zgubionego uploadu (zdarzyło się w terenie: zdjęcie
+// "poszło", a potem znikało bez śladu, i nie było już jak wrócić do pomieszczenia).
+// Każde zrobione zdjęcie (tabliczka, dodatkowe, inne) ląduje tu od razu, obok
+// normalnej wysyłki na Dysk — niezależnie czy wysyłka się uda czy nie. Celowo
+// NIE w localStorage/state: to tylko podręczna kolejka na czas tej sesji w
+// przeglądarce, base64 kilkunastu zdjęć potrafi być za duże żeby trzymać to
+// trwale bez ryzyka przepełnienia limitu localStorage.
+let gallerySaveQueue = [];
+function queueForGallerySave(base64, mimeType){
+  if(!base64) return;
+  gallerySaveQueue.push({ base64, mimeType: mimeType || 'image/jpeg' });
+  if(gallerySaveQueue.length > 40) gallerySaveQueue.shift();
+}
+async function saveGalleryQueueToPhone(){
+  if(!gallerySaveQueue.length) return;
+  const files = gallerySaveQueue.map((p, i) => {
+    const bin = atob(p.base64);
+    const arr = new Uint8Array(bin.length);
+    for(let j=0;j<bin.length;j++) arr[j] = bin.charCodeAt(j);
+    const ext = p.mimeType === 'image/png' ? 'png' : 'jpg';
+    return new File([arr], 'zdjecie_' + (i+1) + '.' + ext, { type: p.mimeType });
+  });
+  if(navigator.canShare && navigator.canShare({ files })){
+    try{
+      await navigator.share({ files });
+      gallerySaveQueue = [];
+      render();
+    }catch(err){
+      if(err.name !== 'AbortError') showToast('Nie udało się zapisać: ' + err.message, true);
+    }
+  } else {
+    showToast('Ta przeglądarka nie obsługuje zapisu zdjęć w ten sposób', true);
+  }
+}
+
 function resetForm(){
   editingId = null;
   formTyp = 'split_wew';
@@ -657,6 +694,7 @@ async function onPhotoChosen(file){
   if(!file) return;
   try{
     const picked = await fileToDownscaledBase64(file);
+    queueForGallerySave(picked.base64, picked.mimeType);
     formPhoto = picked;
     formExistingPhotoUrl = null;
     await runAnalyze();
@@ -737,6 +775,7 @@ async function onExtraPhotoChosen(file){
   if(!file || !editingId) return;
   try{
     const picked = await fileToDownscaledBase64(file);
+    queueForGallerySave(picked.base64, picked.mimeType);
     const tempId = 'localphoto_' + Date.now() + '_' + Math.floor(Math.random()*9999);
     const item = { id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _base64: picked.base64, _mimeType: picked.mimeType, _pending: true };
     editingExtraPhotos.push(item);
@@ -858,6 +897,7 @@ async function onInnePhotoChosen(file){
   if(!file || !state.currentWizyta || !state.currentWizyta.id) return;
   try{
     const picked = await fileToDownscaledBase64(file);
+    queueForGallerySave(picked.base64, picked.mimeType);
     const tempId = 'localphoto_' + Date.now();
     const item = { id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _base64: picked.base64, _mimeType: picked.mimeType, _pending: true };
     if(!state.currentWizyta.zdjeciaInne) state.currentWizyta.zdjeciaInne = [];
@@ -1970,6 +2010,11 @@ function renderWorkspaceScreen(){
   }
   html += '</header>';
 
+  if(gallerySaveQueue.length){
+    html += '<div class="gallerysavebar"><span>💾 ' + gallerySaveQueue.length + ' zdj. gotowe do zapisania w galerii telefonu</span>' +
+      '<button type="button" id="btnSaveGallery">Zapisz</button></div>';
+  }
+
   const activeTab = state.workTab;
   html += '<main class="app ' + (activeTab==='lista' ? 'haswb' : '') + '">';
   html += activeTab==='dodaj' ? renderDodajTabInner() : (activeTab==='pary' ? renderParyTabInner() : renderListaTabInner());
@@ -2000,6 +2045,7 @@ function bindWorkspaceScreen(root){
   const sh = root.querySelector('#btnShare'); if(sh) sh.addEventListener('click', shareExcel);
   const addBtn = root.querySelector('#btnGotoAdd'); if(addBtn) addBtn.addEventListener('click', () => { state.workTab='dodaj'; render(); });
   const reopenBtn = root.querySelector('#btnReopen'); if(reopenBtn) reopenBtn.addEventListener('click', reopenCurrentWizyta);
+  const saveGalBtn = root.querySelector('#btnSaveGallery'); if(saveGalBtn) saveGalBtn.addEventListener('click', saveGalleryQueueToPhone);
 }
 
 async function reopenCurrentWizyta(){
