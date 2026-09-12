@@ -737,7 +737,7 @@ async function onExtraPhotoChosen(file){
   if(!file || !editingId) return;
   try{
     const picked = await fileToDownscaledBase64(file);
-    const tempId = 'localphoto_' + Date.now();
+    const tempId = 'localphoto_' + Date.now() + '_' + Math.floor(Math.random()*9999);
     const item = { id: tempId, fileId:'', url:'', _localPreview: picked.previewDataUrl, _base64: picked.base64, _mimeType: picked.mimeType, _pending: true };
     editingExtraPhotos.push(item);
     syncExtraPhotosToState();
@@ -745,6 +745,15 @@ async function onExtraPhotoChosen(file){
     await uploadExtraPhoto(item);
   }catch(err){
     showToast('Nie udało się wczytać zdjęcia: ' + err.message, true);
+  }
+}
+// Wejście "+" pozwala zaznaczyć od razu kilka zdjęć z galerii (jak przy
+// udostępnianiu plików na iPhonie) — wysyłamy je jedno po drugim (await w
+// pętli, nie Promise.all), żeby nie zarzucić słabego zasięgu w terenie
+// kilkoma równoległymi uploadami naraz.
+async function onExtraPhotosChosen(fileList){
+  for(const file of Array.from(fileList || [])){
+    await onExtraPhotoChosen(file);
   }
 }
 function retryExtraPhoto(id){
@@ -808,7 +817,6 @@ function innePhotosGridHtml(){
   });
   if(!state.readonly){
     html += '<button type="button" class="extraadd" id="btnCamInne" title="Zrób zdjęcie">📷</button>';
-    html += '<button type="button" class="extraadd" id="btnGalInne" title="Z galerii">🖼️</button>';
   }
   return html;
 }
@@ -822,9 +830,7 @@ function bindInneGrid(grid){
   grid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteInnePhoto(b.dataset.id)));
   grid.querySelectorAll('.extraretry').forEach(b => b.addEventListener('click', () => retryInnePhoto(b.dataset.id)));
   const camBtn = grid.querySelector('#btnCamInne');
-  const galBtn = grid.querySelector('#btnGalInne');
   if(camBtn) camBtn.addEventListener('click', () => document.getElementById('innePhotoCamInput').click());
-  if(galBtn) galBtn.addEventListener('click', () => document.getElementById('innePhotoGalInput').click());
 }
 async function uploadInnePhoto(item){
   item._pending = true; item._failed = false;
@@ -1777,11 +1783,10 @@ function renderDodajTabInner(){
   if(editingId){
     html += '<div class="field"><label>Zdjęcia dodatkowe (filtry, pompka skroplin, sprężarka itd. — zapisują się od razu)</label>' +
       '<div class="extragrid" id="extraPhotosGrid">' + extraPhotosGridHtml() + '</div></div>' +
-      '<input type="file" id="extraInput" accept="image/*" style="display:none">';
+      '<input type="file" id="extraInput" accept="image/*" multiple style="display:none">';
     html += '<div class="field"><label>📎 Inne zdjęcia wizyty (montaż, awaria, materiały)</label>' +
       '<div class="extragrid" id="innePhotosGrid">' + innePhotosGridHtml() + '</div></div>' +
-      '<input type="file" id="innePhotoCamInput" accept="image/*" capture="environment" style="display:none">' +
-      '<input type="file" id="innePhotoGalInput" accept="image/*" style="display:none">';
+      '<input type="file" id="innePhotoCamInput" accept="image/*" capture="environment" style="display:none">';
   }
 
   html += '<div id="formErr" class="err" style="display:none"></div>';
@@ -1895,7 +1900,7 @@ function bindDodajTab(root){
   }
   if(editingId){
     const extraInput = root.querySelector('#extraInput');
-    if(extraInput) extraInput.addEventListener('change', e => { onExtraPhotoChosen(e.target.files[0]); e.target.value=''; });
+    if(extraInput) extraInput.addEventListener('change', e => { onExtraPhotosChosen(e.target.files); e.target.value=''; });
     const addExtraBtn = root.querySelector('#btnAddExtraPhoto');
     if(addExtraBtn) addExtraBtn.addEventListener('click', () => extraInput.click());
     // Scoped do #extraPhotosGrid — poniżej mamy w tym samym formularzu drugą
@@ -1907,9 +1912,7 @@ function bindDodajTab(root){
     const inneGrid = root.querySelector('#innePhotosGrid');
     if(inneGrid) bindInneGrid(inneGrid);
     const camInne = root.querySelector('#innePhotoCamInput');
-    const galInne = root.querySelector('#innePhotoGalInput');
     if(camInne) camInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
-    if(galInne) galInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
   }
   const cam = root.querySelector('#camInput');
   const gal = root.querySelector('#galInput');
