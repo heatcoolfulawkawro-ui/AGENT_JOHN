@@ -601,10 +601,14 @@ function analyzePhoto(base64, mimeType) {
   if (!key) throw new Error('Brak klucza GEMINI_API_KEY — dodaj go w Ustawienia projektu -> Właściwości skryptu');
 
   const prompt = 'Jesteś asystentem serwisanta klimatyzacji/HVAC. Na zdjęciu jest tabliczka znamionowa ' +
-    'urządzenia (klimatyzator, centrala wentylacyjna, agregat wody lodowej itp). Odczytaj z niej: producenta ' +
+    'urządzenia — może to być klimatyzator, centrala wentylacyjna, agregat wody lodowej, kocioł, albo sama ' +
+    'sprężarka czy inny podzespół w środku obudowy — odczytaj to co faktycznie jest na tabliczce, niezależnie ' +
+    'od typu urządzenia. Odczytaj z niej: producenta ' +
     '(Manufacturer/Brand), model (Model/Model No./Type/Modèle), numer seryjny (Serial No./S/N) oraz — jeśli ' +
     'widoczne — czynnik chłodniczy i jego ilość fabryczną (Refrigerant/Réfrigérant/Czynnik chłodniczy, np. R32, ' +
     'R410A, R404A, R134A). ' +
+    'Producenta podaj krótko — samą nazwę marki widoczną w logo (np. "Fujitsu", "Airwell", "Trane"), nie pełną ' +
+    'nazwę prawną firmy nawet jeśli gdzieś na tabliczce występuje (np. nie "Fujitsu General Limited"). ' +
     'WAŻNE — numer seryjny: na wielu tabliczkach numer seryjny nie ma żadnej etykiety "S/N" ani "Serial No." ' +
     'obok siebie — to po prostu ciąg cyfr/znaków wydrukowany bezpośrednio POD kodem kreskowym (lub kodem QR), ' +
     'bez żadnego opisu. Jeśli nie widzisz pola opisanego wprost jako numer seryjny, ale na tabliczce jest kod ' +
