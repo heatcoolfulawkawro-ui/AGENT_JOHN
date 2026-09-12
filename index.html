@@ -683,6 +683,7 @@ async function runAnalyze(){
       state.form.producent = res.data.producent || '';
       state.form.model = res.data.model || '';
       state.form.sn = res.data.sn || '';
+      if(res.data.lokalizacja) state.form.lokalizacja = res.data.lokalizacja;
       state.form.czynnik = res.data.czynnik || '';
       // na wypadek gdyby model zwrócił przecinek zamiast kropki mimo instrukcji —
       // pole liczbowe (type=number) po prostu zignoruje wartość z przecinkiem.

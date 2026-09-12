@@ -629,10 +629,17 @@ function analyzePhoto(base64, mimeType) {
     'i czynnikFabryczny — sama liczba w kg, zapisana z kropką jako separatorem dziesiętnym (np. "0.62"), bez ' +
     'jednostki "kg" i bez przecinka. Jeśli ilości fabrycznej nie widać, zostaw czynnikFabryczny puste, nawet ' +
     'gdy sam czynnik jest znany. ' +
+    'WAŻNE — lokalizacja: czasem na zdjęciu, oprócz samej tabliczki znamionowej urządzenia, widoczne jest też ' +
+    'odręczne oznaczenie numeru pomieszczenia (np. napisane markerem/długopisem na obudowie, na taśmie, na ' +
+    'kartce przyklejonej obok, albo na osobnej naklejce niezwiązanej z tabliczką producenta) — typu "505", ' +
+    '"507 A", "sala 12", "pok. 3.14". To NIE jest część danych producenta (nie mylić z modelem czy numerem ' +
+    'seryjnym) — to lokalizacja/numer pomieszczenia, w którym zamontowane jest urządzenie. Jeśli coś takiego jest ' +
+    'widoczne na zdjęciu, przepisz to dokładnie do pola "lokalizacja". Jeśli na zdjęciu nie ma żadnego takiego ' +
+    'odręcznego/dodatkowego oznaczenia pomieszczenia, zostaw pole "lokalizacja" puste — nie zgaduj i nie wymyślaj. ' +
     'Zwróć WYŁĄCZNIE czysty JSON, bez dodatkowego tekstu, w formacie ' +
-    '{"producent":"...","model":"...","sn":"...","czynnik":"...","czynnikFabryczny":"..."}. Jeśli któregoś pola ' +
-    'nie da się odczytać, wstaw pusty string "". Przepisz model i numer seryjny dokładnie tak, znak po znaku, ' +
-    'jak są na tabliczce — nie poprawiaj ich i nie zgaduj.';
+    '{"producent":"...","model":"...","sn":"...","czynnik":"...","czynnikFabryczny":"...","lokalizacja":"..."}. ' +
+    'Jeśli któregoś pola nie da się odczytać, wstaw pusty string "". Przepisz model i numer seryjny dokładnie tak, ' +
+    'znak po znaku, jak są na tabliczce — nie poprawiaj ich i nie zgaduj.';
 
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(key);
   const payload = {
