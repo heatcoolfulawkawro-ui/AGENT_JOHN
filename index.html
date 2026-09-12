@@ -154,7 +154,6 @@
   .folderpath{ font-size:10.5px; color:var(--ink-dim); margin:2px 0 12px; word-break:break-word; }
   a.folderlink{ display:block; text-decoration:none; }
   .folderlinkarrow{ display:block; color:var(--blue); font-size:11.5px; font-weight:600; margin-top:2px; }
-  .innesection{ margin:18px 0; }
 
   .typfieldwrap select{
     width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:9px;
@@ -775,12 +774,14 @@ async function deleteExtraPhoto(id){
 
 // ============ ZDJĘCIA "INNE" (montaż, awaria, materiały — całej wizyty, ============
 // ============ bez powiązania z konkretnym urządzeniem i bez odczytu AI) ============
-// Drugi, oddzielny wiersz przycisków w zakładce Dodaj, tuż pod zdjęciem
-// tabliczki — żeby dało się przeklikać "tabliczka → inne zdjęcie" jedno po
-// drugim bez przełączania się do Listy. Ten sam mechanizm zapisu co galeria
-// w Liście (onInnePhotoChosen), tylko inne wejście w UI.
+// Świadomie NIE ma tego w zakładce Lista (ogólny widok listy urządzeń) —
+// Paweł zgłosił, że dodawanie stamtąd traci kontekst "które to urządzenie".
+// Zamiast tego jest w dwóch miejscach, gdzie zawsze skupiamy się na jednym
+// konkretnym urządzeniu: ten szybki wiersz przy DODAWANIU nowego (tuż pod
+// zdjęciem tabliczki), i pełna siatka w formularzu EDYCJI (patrz editingId
+// niżej) — więc quick-row chowamy w trybie edycji, żeby nie dublować UI.
 function innePhotoQuickRowHtml(){
-  if(state.readonly || !state.currentWizyta || !state.currentWizyta.id) return '';
+  if(editingId || state.readonly || !state.currentWizyta || !state.currentWizyta.id) return '';
   const count = ((state.currentWizyta.zdjeciaInne)||[]).length;
   return '<div class="shotpickrow innequickrow">' +
       '<button type="button" id="btnCamInneQuick"><span class="ic">📎</span>Inne zdjęcie' + (count ? ' (' + count + ')' : '') + '</button>' +
@@ -1655,15 +1656,6 @@ function renderListaTabInner(){
     state.urzadzenia.forEach((u,i) => { html += renderDevCard(u, i, state.urzadzenia.length, numbers); });
   }
 
-  if(state.currentWizyta && state.currentWizyta.id){
-    html += '<div class="innesection"><div class="sectionlbl">📎 Inne zdjęcia (montaż, awaria, materiały)</div>' +
-      '<div class="extragrid" id="innePhotosGrid">' + innePhotosGridHtml() + '</div></div>';
-    if(!state.readonly){
-      html += '<input type="file" id="innePhotoCamInput" accept="image/*" capture="environment" style="display:none">' +
-        '<input type="file" id="innePhotoGalInput" accept="image/*" style="display:none">';
-    }
-  }
-
   if(!state.readonly && state.urzadzenia.length > 0){
     html += '<div class="finishcard"><p>Wszystkie urządzenia spisane? Zakończenie przenosi wizytę do Archiwum — dane przestają być edytowalne.</p>' +
       '<button class="finishbtn" id="btnFinish">✓ Zakończ protokół</button></div>';
@@ -1678,12 +1670,6 @@ function bindListaTab(root){
   root.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => deleteEntry(b.dataset.id)));
   const fin = root.querySelector('#btnFinish'); if(fin) fin.addEventListener('click', finishProtocol);
   const retry = root.querySelector('#btnRetry'); if(retry) retry.addEventListener('click', retryAllUnsynced);
-  const innegrid = root.querySelector('#innePhotosGrid');
-  if(innegrid) bindInneGrid(innegrid);
-  const camInne = root.querySelector('#innePhotoCamInput');
-  const galInne = root.querySelector('#innePhotoGalInput');
-  if(camInne) camInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
-  if(galInne) galInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
 }
 
 function renderParyTabInner(){
@@ -1792,6 +1778,10 @@ function renderDodajTabInner(){
     html += '<div class="field"><label>Zdjęcia dodatkowe (filtry, pompka skroplin, sprężarka itd. — zapisują się od razu)</label>' +
       '<div class="extragrid" id="extraPhotosGrid">' + extraPhotosGridHtml() + '</div></div>' +
       '<input type="file" id="extraInput" accept="image/*" style="display:none">';
+    html += '<div class="field"><label>📎 Inne zdjęcia wizyty (montaż, awaria, materiały)</label>' +
+      '<div class="extragrid" id="innePhotosGrid">' + innePhotosGridHtml() + '</div></div>' +
+      '<input type="file" id="innePhotoCamInput" accept="image/*" capture="environment" style="display:none">' +
+      '<input type="file" id="innePhotoGalInput" accept="image/*" style="display:none">';
   }
 
   html += '<div id="formErr" class="err" style="display:none"></div>';
@@ -1908,7 +1898,18 @@ function bindDodajTab(root){
     if(extraInput) extraInput.addEventListener('change', e => { onExtraPhotoChosen(e.target.files[0]); e.target.value=''; });
     const addExtraBtn = root.querySelector('#btnAddExtraPhoto');
     if(addExtraBtn) addExtraBtn.addEventListener('click', () => extraInput.click());
-    root.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteExtraPhoto(b.dataset.id)));
+    // Scoped do #extraPhotosGrid — poniżej mamy w tym samym formularzu drugą
+    // siatkę (#innePhotosGrid) z tymi samymi klasami .extradel/.extraretry,
+    // więc odpytanie całego root wiązałoby też jej przyciski pod złą funkcję.
+    const extraGrid = root.querySelector('#extraPhotosGrid');
+    if(extraGrid) extraGrid.querySelectorAll('.extradel').forEach(b => b.addEventListener('click', () => deleteExtraPhoto(b.dataset.id)));
+
+    const inneGrid = root.querySelector('#innePhotosGrid');
+    if(inneGrid) bindInneGrid(inneGrid);
+    const camInne = root.querySelector('#innePhotoCamInput');
+    const galInne = root.querySelector('#innePhotoGalInput');
+    if(camInne) camInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
+    if(galInne) galInne.addEventListener('change', e => { onInnePhotoChosen(e.target.files[0]); e.target.value=''; });
   }
   const cam = root.querySelector('#camInput');
   const gal = root.querySelector('#galInput');
