@@ -678,10 +678,11 @@ function analyzePhoto(base64, mimeType) {
   }
   text = text.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
   let out;
-  try { out = JSON.parse(text); } catch (e) { out = { producent: '', model: '', sn: '', czynnik: '', czynnikFabryczny: '' }; }
+  try { out = JSON.parse(text); } catch (e) { out = { producent: '', model: '', sn: '', czynnik: '', czynnikFabryczny: '', lokalizacja: '' }; }
   return {
     producent: out.producent || '', model: out.model || '', sn: out.sn || '',
-    czynnik: out.czynnik || '', czynnikFabryczny: out.czynnikFabryczny || ''
+    czynnik: out.czynnik || '', czynnikFabryczny: out.czynnikFabryczny || '',
+    lokalizacja: out.lokalizacja || ''
   };
 }
 
