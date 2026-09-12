@@ -484,11 +484,16 @@ function addUrzadzenie(data) {
     const ts = nowStr();
     const czynnikFab = toNumOrEmpty(data.czynnikFabryczny);
     const czynnikDod = toNumOrEmpty(data.czynnikDodatkowy);
-    getUrzadzeniaSheet().appendRow([
+    const sheet = getUrzadzeniaSheet();
+    sheet.appendRow([
       id, data.wizytaId, kolejnosc, data.producent || '', data.model || '', data.sn || '',
       data.typ || '', data.lokalizacja || '', data.uwagi || '', foto.url, foto.fileId, ts, data.system || '', data.parujZId || '',
       data.czynnik || '', czynnikFab, czynnikDod, data.clientId || ''
     ]);
+    // Wymuszamy zwykły format liczbowy na tych dwóch komórkach — appendRow
+    // sam w sobie nie formatuje nic, ale to i tak tania, jednorazowa
+    // gwarancja przeciw temu samemu zjawisku co niżej w updateUrzadzenie.
+    sheet.getRange(sheet.getLastRow(), 16, 1, 2).setNumberFormat('0.00');
     touchWizyta(data.wizytaId);
     return {
       id: id, wizytaId: data.wizytaId, kolejnosc: kolejnosc, producent: data.producent || '', model: data.model || '',
@@ -523,8 +528,23 @@ function updateUrzadzenie(data) {
     if (data.system !== undefined) sheet.getRange(rowNum, 13).setValue(data.system);
     if (data.parujZId !== undefined) sheet.getRange(rowNum, 14).setValue(data.parujZId);
     if (data.czynnik !== undefined) sheet.getRange(rowNum, 15).setValue(data.czynnik);
-    if (data.czynnikFabryczny !== undefined) sheet.getRange(rowNum, 16).setValue(toNumOrEmpty(data.czynnikFabryczny));
-    if (data.czynnikDodatkowy !== undefined) sheet.getRange(rowNum, 17).setValue(toNumOrEmpty(data.czynnikDodatkowy));
+    // setNumberFormat MUSI iść przed setValue: komórka, która kiedyś (przed
+    // toNumOrEmpty) dostała tu wartość wyglądającą jak data, ma do dziś
+    // format "Data" przyklejony do komórki niezależnie od tego, co w niej
+    // teraz jest — sam setValue(liczba) nic z tym nie robi, Sheets i tak
+    // odczyta tę liczbę jako numer seryjny daty (stąd np. "1899-12-31...").
+    // Bez tej linii naprawa starego, zepsutego wiersza tylko zamienia jedną
+    // złą datę na inną.
+    if (data.czynnikFabryczny !== undefined) {
+      const r = sheet.getRange(rowNum, 16);
+      r.setNumberFormat('0.00');
+      r.setValue(toNumOrEmpty(data.czynnikFabryczny));
+    }
+    if (data.czynnikDodatkowy !== undefined) {
+      const r = sheet.getRange(rowNum, 17);
+      r.setNumberFormat('0.00');
+      r.setValue(toNumOrEmpty(data.czynnikDodatkowy));
+    }
 
     if (data.imageBase64) {
       const merged = {
