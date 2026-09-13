@@ -4,6 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HVAC Notatki</title>
+<script>
+// Skróty na ekranie głównym telefonu potrafią pokazywać zbuforowaną,
+// starą wersję strony. Ten kod po cichu sprawdza w tle prawdziwą
+// aktualną wersję na serwerze (z pominięciem cache przeglądarki) i
+// odświeża stronę automatycznie, jeśli wykryje nowszą.
+(function(){
+  try{
+    fetch(location.pathname, { method:'HEAD', cache:'no-store' }).then(function(res){
+      var v = res.headers.get('last-modified') || res.headers.get('etag');
+      if(!v) return;
+      var stored = localStorage.getItem('agentjohn_page_version');
+      localStorage.setItem('agentjohn_page_version', v);
+      if(stored && stored !== v) location.reload();
+    }).catch(function(){});
+  }catch(e){}
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
